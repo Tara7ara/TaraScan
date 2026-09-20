@@ -66,11 +66,31 @@ ffuf — archivos sensibles/backups
 ┡━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
 │ /backup.zip │ 200    │ 8214   │
 └─────────────┴────────┴────────┘
+
+nikto — configuración/vulnerabilidades web
+  - 6 cabeceras de seguridad recomendadas ausentes: content-security-policy,
+    strict-transport-security, x-content-type-options, referrer-policy,
+    permissions-policy, x-frame-options
+
+enum4linux — enumeración SMB
+  Usuarios
+    - testuser (RID 0x3e8)
+  Recursos compartidos
+    - public          Disk
+
+Resumen
+  • 3 puerto(s) abierto(s)
+  • web detectada en el puerto 80 (http://scanme.nmap.org)
+  • gobuster encontró 1 ruta(s)
+  • ffuf encontró 1 archivo(s) sensible(s)/backup(s)
+  • nikto reportó 1 hallazgo(s) de configuración
 ```
 
-Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan automáticamente contra ese puerto: `whatweb` (fingerprinting), `gobuster` (directorios, wordlist `common.txt` de seclists), `ffuf` (fuzzing de una lista de archivos sensibles/backups habituales — `.env`, `backup.zip`, `wp-config.php.bak`...) y `nikto` (configuración/vulnerabilidades web básicas). Si `whatweb` detecta WordPress, se añade `wpscan`.
+Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan automáticamente contra ese puerto: `whatweb` (fingerprinting), `gobuster` (directorios, wordlist `common.txt` de seclists), `ffuf` (fuzzing de una lista de archivos sensibles/backups habituales — `.env`, `backup.zip`, `wp-config.php.bak`...) y `nikto` (configuración/vulnerabilidades web básicas, resumida — las cabeceras de seguridad ausentes salen agrupadas en una línea en vez de repetidas). Si `whatweb` detecta WordPress, se añade `wpscan`.
 
-Si nmap detecta puerto 139 o 445 (SMB), se lanzan `smbclient` (listado de recursos compartidos sin autenticación) y `enum4linux` (enumeración de SO, shares y usuarios).
+Si nmap detecta puerto 139 o 445 (SMB), se lanzan `smbclient` (listado de recursos compartidos sin autenticación) y `enum4linux` (enumeración de SO, shares y usuarios, agrupada por secciones).
+
+Al final siempre se imprime un **Resumen** con lo esencial en lenguaje llano: puertos abiertos, si hay web/SMB, y cuántos hallazgos encontró cada herramienta.
 
 ## Herramientas encadenadas
 
