@@ -11,7 +11,8 @@ En desarrollo. Fase 1: recon de dominios/subdominios. La salida es por terminal;
 ## Requisitos
 
 - Python 3.11+
-- nmap, gobuster, whatweb y ffuf instalados y accesibles en el PATH
+- nmap, gobuster, whatweb, ffuf, nikto, smbclient y enum4linux instalados y accesibles en el PATH
+- `wpscan` si quieres el análisis extra cuando se detecta WordPress
 
 ## Instalación
 
@@ -67,7 +68,9 @@ ffuf — archivos sensibles/backups
 └─────────────┴────────┴────────┘
 ```
 
-Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan automáticamente contra ese puerto: `whatweb` (fingerprinting), `gobuster` (directorios, wordlist `common.txt` de seclists) y `ffuf` (fuzzing de una lista de archivos sensibles/backups habituales — `.env`, `backup.zip`, `wp-config.php.bak`...).
+Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan automáticamente contra ese puerto: `whatweb` (fingerprinting), `gobuster` (directorios, wordlist `common.txt` de seclists), `ffuf` (fuzzing de una lista de archivos sensibles/backups habituales — `.env`, `backup.zip`, `wp-config.php.bak`...) y `nikto` (configuración/vulnerabilidades web básicas). Si `whatweb` detecta WordPress, se añade `wpscan`.
+
+Si nmap detecta puerto 139 o 445 (SMB), se lanzan `smbclient` (listado de recursos compartidos sin autenticación) y `enum4linux` (enumeración de SO, shares y usuarios).
 
 ## Herramientas encadenadas
 
@@ -75,3 +78,6 @@ Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan auto
 - whatweb (tecnologías del servidor web, solo si hay puerto http)
 - gobuster (rutas web con wordlist genérica, solo si hay puerto http)
 - ffuf (archivos sensibles/backups habituales, solo si hay puerto http)
+- nikto (configuración/vulnerabilidades web básicas, solo si hay puerto http)
+- wpscan (solo si whatweb detecta WordPress)
+- smbclient y enum4linux (recursos SMB y enumeración básica, solo si hay puerto 139/445)
