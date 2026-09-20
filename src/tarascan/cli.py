@@ -5,7 +5,7 @@ import sys
 from rich.console import Console
 from rich.table import Table
 
-from tarascan.scanners import nmap
+from tarascan.scanners import gobuster, nmap
 
 console = Console()
 error_console = Console(stderr=True, style="bold red")
@@ -41,6 +41,29 @@ def main() -> None:
         for p in ports:
             table.add_row(p["port"], p["proto"], p["service"])
         console.print(table)
+
+    web_ports = [p for p in ports if "http" in p["service"].lower()]
+    if web_ports:
+        port = web_ports[0]["port"]
+        scheme = "https" if port in ("443", "8443") else "http"
+        netloc = args.target if port in ("80", "443") else f"{args.target}:{port}"
+        console.print("\n[bold]gobuster[/] — rutas encontradas")
+        try:
+            findings = gobuster.scan(f"{scheme}://{netloc}")
+        except FileNotFoundError:
+            error_console.print("gobuster no está instalado o no está en el PATH")
+        except subprocess.CalledProcessError as exc:
+            error_console.print(f"gobuster falló: {exc}")
+        else:
+            if not findings:
+                console.print("  [dim]sin rutas encontradas con la wordlist por defecto[/]")
+            else:
+                gb_table = Table(show_header=True, header_style="bold")
+                gb_table.add_column("Ruta")
+                gb_table.add_column("Status")
+                for f in findings:
+                    gb_table.add_row(f["path"], f["status"])
+                console.print(gb_table)
 
 
 if __name__ == "__main__":

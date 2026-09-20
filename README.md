@@ -11,7 +11,7 @@ En desarrollo. Fase 1: recon de dominios/subdominios. La salida es por terminal;
 ## Requisitos
 
 - Python 3.11+
-- nmap instalado y accesible en el PATH
+- nmap y gobuster instalados y accesibles en el PATH
 
 ## Instalación
 
@@ -43,10 +43,20 @@ nmap — puertos abiertos
 │ 22     │ tcp   │ ssh      │
 │ 80     │ tcp   │ http     │
 └────────┴───────┴──────────┘
+
+gobuster — rutas encontradas
+┏━━━━━━━━┳━━━━━━━━┓
+┃ Ruta   ┃ Status ┃
+┡━━━━━━━━╇━━━━━━━━┩
+│ /admin │ 301    │
+└────────┴────────┘
 ```
+
+Si nmap detecta un puerto web (servicio con "http" en el nombre), `gobuster` se lanza automáticamente contra ese puerto con la wordlist `common.txt` de seclists.
 
 ## Herramientas encadenadas
 
 - nmap (puertos abiertos)
+- gobuster (rutas web, solo si nmap detectó un puerto http)
 
-Más herramientas (gobuster/ffuf, whatweb...) según avance la Fase 1.
+Más herramientas (ffuf, whatweb...) según avance la Fase 1.
