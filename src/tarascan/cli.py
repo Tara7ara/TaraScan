@@ -11,17 +11,27 @@ console = Console()
 error_console = Console(stderr=True, style="bold red")
 
 
-def _run(tool: str, fn, *args):
+def _status_markup(status: str) -> str:
     try:
-        return fn(*args)
-    except FileNotFoundError:
-        error_console.print(f"{tool} no está instalado o no está en el PATH")
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or "").strip()
-        message = f"{tool} falló (código {exc.returncode})"
-        if detail:
-            message += f":\n{detail[:500]}"
-        error_console.print(message, markup=False, highlight=False)
+        code = int(status)
+    except ValueError:
+        return status
+    color = "green" if code < 300 else "yellow" if code < 400 else "red"
+    return f"[{color}]{status}[/{color}]"
+
+
+def _run(tool: str, fn, *args):
+    with console.status(f"ejecutando {tool}..."):
+        try:
+            return fn(*args)
+        except FileNotFoundError:
+            error_console.print(f"{tool} no está instalado o no está en el PATH")
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            message = f"{tool} falló (código {exc.returncode})"
+            if detail:
+                message += f":\n{detail[:500]}"
+            error_console.print(message, markup=False, highlight=False)
     return None
 
 
@@ -84,7 +94,7 @@ def main() -> None:
                 gb_table.add_column("Ruta")
                 gb_table.add_column("Status")
                 for f in findings:
-                    gb_table.add_row(f["path"], f["status"])
+                    gb_table.add_row(f["path"], _status_markup(f["status"]))
                 console.print(gb_table)
                 summary.append(f"gobuster encontró {len(findings)} ruta(s)")
 
@@ -99,7 +109,7 @@ def main() -> None:
                 ff_table.add_column("Status")
                 ff_table.add_column("Tamaño")
                 for h in hits:
-                    ff_table.add_row(h["path"], h["status"], h["size"])
+                    ff_table.add_row(h["path"], _status_markup(h["status"]), h["size"])
                 console.print(ff_table)
                 summary.append(f"ffuf encontró {len(hits)} archivo(s) sensible(s)/backup(s)")
 
