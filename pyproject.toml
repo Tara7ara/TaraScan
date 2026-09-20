@@ -7,6 +7,9 @@ name = "tarascan"
 version = "0.1.0"
 description = "Wrapper de recon que encadena herramientas ya instaladas y unifica su salida"
 requires-python = ">=3.11"
+dependencies = [
+    "rich>=13",
+]
 
 [project.scripts]
 tarascan = "tarascan.cli:main"

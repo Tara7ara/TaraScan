@@ -34,11 +34,15 @@ tarascan <dominio-o-ip>
 Salida de ejemplo:
 
 ```
-[tarascan] recon sobre scanme.nmap.org
+── tarascan · recon sobre scanme.nmap.org ──
 
-== nmap (puertos abiertos) ==
-  22/tcp  ssh
-  80/tcp  http
+nmap — puertos abiertos
+┏━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
+┃ Puerto ┃ Proto ┃ Servicio ┃
+┡━━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
+│ 22     │ tcp   │ ssh      │
+│ 80     │ tcp   │ http     │
+└────────┴───────┴──────────┘
 ```
 
 ## Herramientas encadenadas
