@@ -17,7 +17,11 @@ def _run(tool: str, fn, *args):
     except FileNotFoundError:
         error_console.print(f"{tool} no está instalado o no está en el PATH")
     except subprocess.CalledProcessError as exc:
-        error_console.print(f"{tool} falló: {exc}")
+        detail = (exc.stderr or exc.stdout or "").strip()
+        message = f"{tool} falló (código {exc.returncode})"
+        if detail:
+            message += f":\n{detail[:500]}"
+        error_console.print(message, markup=False, highlight=False)
     return None
 
 
