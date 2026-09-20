@@ -34,6 +34,7 @@ def main() -> None:
     args = parser.parse_args()
 
     console.rule(f"[bold]tarascan[/] · recon sobre [cyan]{args.target}[/]")
+    summary: list[str] = []
 
     ports = _run("nmap", nmap.scan, args.target)
     if ports is None:
@@ -50,6 +51,7 @@ def main() -> None:
         for p in ports:
             table.add_row(p["port"], p["proto"], p["service"])
         console.print(table)
+    summary.append(f"{len(ports)} puerto(s) abierto(s)" if ports else "ningún puerto abierto en el escaneo rápido")
 
     web_ports = [p for p in ports if "http" in p["service"].lower()]
     if web_ports:
@@ -57,6 +59,7 @@ def main() -> None:
         scheme = "https" if port in ("443", "8443") else "http"
         netloc = args.target if port in ("80", "443") else f"{args.target}:{port}"
         url = f"{scheme}://{netloc}"
+        summary.append(f"web detectada en el puerto {port} ({url})")
 
         console.print("\n[bold]whatweb[/] — tecnologías detectadas")
         info = _run("whatweb", whatweb.scan, url)
@@ -83,6 +86,7 @@ def main() -> None:
                 for f in findings:
                     gb_table.add_row(f["path"], f["status"])
                 console.print(gb_table)
+                summary.append(f"gobuster encontró {len(findings)} ruta(s)")
 
         console.print("\n[bold]ffuf[/] — archivos sensibles/backups")
         hits = _run("ffuf", ffuf.scan, url)
@@ -97,6 +101,7 @@ def main() -> None:
                 for h in hits:
                     ff_table.add_row(h["path"], h["status"], h["size"])
                 console.print(ff_table)
+                summary.append(f"ffuf encontró {len(hits)} archivo(s) sensible(s)/backup(s)")
 
         console.print("\n[bold]nikto[/] — configuración/vulnerabilidades web")
         nikto_findings = _run("nikto", nikto.scan, url)
@@ -106,6 +111,7 @@ def main() -> None:
             else:
                 for finding in nikto_findings:
                     console.print(f"  - {finding}", markup=False, highlight=False)
+                summary.append(f"nikto reportó {len(nikto_findings)} hallazgo(s) de configuración")
 
         if info is not None and "WordPress" in info["plugins"]:
             console.print("\n[bold]wpscan[/] — WordPress detectado")
@@ -120,9 +126,11 @@ def main() -> None:
                     for f in wp_findings:
                         wp_table.add_row(f["tipo"], f["detalle"])
                     console.print(wp_table)
+                    summary.append(f"WordPress detectado, wpscan encontró {len(wp_findings)} hallazgo(s)")
 
     smb_ports = [p for p in ports if p["port"] in ("139", "445")]
     if smb_ports:
+        summary.append("SMB accesible (puerto 139/445)")
         console.print("\n[bold]smbclient[/] — recursos compartidos")
         shares = _run("smbclient", smbclient.scan, args.target)
         if shares is not None:
@@ -136,15 +144,26 @@ def main() -> None:
                 for s in shares:
                     sc_table.add_row(s["type"], s["name"], s["comment"])
                 console.print(sc_table)
+                summary.append(f"smbclient listó {len(shares)} recurso(s) compartido(s) sin autenticación")
 
         console.print("\n[bold]enum4linux[/] — enumeración SMB")
-        e4l_findings = _run("enum4linux", enum4linux.scan, args.target)
-        if e4l_findings is not None:
-            if not e4l_findings:
+        e4l_sections = _run("enum4linux", enum4linux.scan, args.target)
+        if e4l_sections is not None:
+            if not e4l_sections:
                 console.print("  [dim]sin hallazgos[/]")
             else:
-                for finding in e4l_findings:
-                    console.print(f"  - {finding}", markup=False, highlight=False)
+                for section, lines in e4l_sections.items():
+                    console.print(f"  [italic]{section}[/]")
+                    for line in lines:
+                        console.print(f"    - {line}", markup=False, highlight=False)
+                if "Usuarios" in e4l_sections:
+                    summary.append(f"enum4linux enumeró {len(e4l_sections['Usuarios'])} usuario(s) por SMB")
+                if any("allows sessions" in line for line in e4l_sections.get("Acceso", [])):
+                    summary.append("SMB permite sesión anónima")
+
+    console.print("\n[bold]Resumen[/]")
+    for line in summary:
+        console.print(f"  • {line}", markup=False, highlight=False)
 
 
 if __name__ == "__main__":
