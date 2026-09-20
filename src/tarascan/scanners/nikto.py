@@ -13,6 +13,8 @@ _SKIP_PREFIXES = (
     "requests:",
 )
 
+_MISSING_HEADER_MARK = "Suggested security header missing: "
+
 
 def scan(url: str) -> list[str]:
     result = subprocess.run(
@@ -24,6 +26,7 @@ def scan(url: str) -> list[str]:
     )
 
     findings = []
+    missing_headers = []
     for line in result.stdout.splitlines():
         line = line.strip()
         if not line.startswith("+ "):
@@ -31,6 +34,12 @@ def scan(url: str) -> list[str]:
         line = line[2:]
         if line.startswith(_SKIP_PREFIXES) or "host(s) tested" in line or "requests:" in line:
             continue
+        if _MISSING_HEADER_MARK in line:
+            missing_headers.append(line.split(_MISSING_HEADER_MARK, 1)[1].split(".", 1)[0])
+            continue
         findings.append(line)
+
+    if missing_headers:
+        findings.insert(0, f"{len(missing_headers)} cabeceras de seguridad recomendadas ausentes: {', '.join(missing_headers)}")
 
     return findings
