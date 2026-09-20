@@ -5,7 +5,7 @@ import sys
 from rich.console import Console
 from rich.table import Table
 
-from tarascan.scanners import gobuster, nmap
+from tarascan.scanners import ffuf, gobuster, nmap, whatweb
 
 console = Console()
 error_console = Console(stderr=True, style="bold red")
@@ -47,9 +47,29 @@ def main() -> None:
         port = web_ports[0]["port"]
         scheme = "https" if port in ("443", "8443") else "http"
         netloc = args.target if port in ("80", "443") else f"{args.target}:{port}"
+        url = f"{scheme}://{netloc}"
+
+        console.print("\n[bold]whatweb[/] — tecnologías detectadas")
+        try:
+            info = whatweb.scan(url)
+        except FileNotFoundError:
+            error_console.print("whatweb no está instalado o no está en el PATH")
+        except subprocess.CalledProcessError as exc:
+            error_console.print(f"whatweb falló: {exc}")
+        else:
+            if not info["plugins"]:
+                console.print("  [dim]sin resultados[/]")
+            else:
+                ww_table = Table(show_header=True, header_style="bold")
+                ww_table.add_column("Plugin")
+                ww_table.add_column("Detalle")
+                for name, value in info["plugins"].items():
+                    ww_table.add_row(name, value)
+                console.print(ww_table)
+
         console.print("\n[bold]gobuster[/] — rutas encontradas")
         try:
-            findings = gobuster.scan(f"{scheme}://{netloc}")
+            findings = gobuster.scan(url)
         except FileNotFoundError:
             error_console.print("gobuster no está instalado o no está en el PATH")
         except subprocess.CalledProcessError as exc:
@@ -64,6 +84,25 @@ def main() -> None:
                 for f in findings:
                     gb_table.add_row(f["path"], f["status"])
                 console.print(gb_table)
+
+        console.print("\n[bold]ffuf[/] — archivos sensibles/backups")
+        try:
+            hits = ffuf.scan(url)
+        except FileNotFoundError:
+            error_console.print("ffuf no está instalado o no está en el PATH")
+        except subprocess.CalledProcessError as exc:
+            error_console.print(f"ffuf falló: {exc}")
+        else:
+            if not hits:
+                console.print("  [dim]sin hallazgos entre los nombres habituales probados[/]")
+            else:
+                ff_table = Table(show_header=True, header_style="bold")
+                ff_table.add_column("Ruta")
+                ff_table.add_column("Status")
+                ff_table.add_column("Tamaño")
+                for h in hits:
+                    ff_table.add_row(h["path"], h["status"], h["size"])
+                console.print(ff_table)
 
 
 if __name__ == "__main__":

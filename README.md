@@ -11,7 +11,7 @@ En desarrollo. Fase 1: recon de dominios/subdominios. La salida es por terminal;
 ## Requisitos
 
 - Python 3.11+
-- nmap y gobuster instalados y accesibles en el PATH
+- nmap, gobuster, whatweb y ffuf instalados y accesibles en el PATH
 
 ## Instalación
 
@@ -44,19 +44,34 @@ nmap — puertos abiertos
 │ 80     │ tcp   │ http     │
 └────────┴───────┴──────────┘
 
+whatweb — tecnologías detectadas
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Plugin     ┃ Detalle       ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ HTTPServer │ nginx/1.24.0  │
+│ Title      │ Bienvenido    │
+└────────────┴───────────────┘
+
 gobuster — rutas encontradas
 ┏━━━━━━━━┳━━━━━━━━┓
 ┃ Ruta   ┃ Status ┃
 ┡━━━━━━━━╇━━━━━━━━┩
 │ /admin │ 301    │
 └────────┴────────┘
+
+ffuf — archivos sensibles/backups
+┏━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
+┃ Ruta        ┃ Status ┃ Tamaño ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
+│ /backup.zip │ 200    │ 8214   │
+└─────────────┴────────┴────────┘
 ```
 
-Si nmap detecta un puerto web (servicio con "http" en el nombre), `gobuster` se lanza automáticamente contra ese puerto con la wordlist `common.txt` de seclists.
+Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan automáticamente contra ese puerto: `whatweb` (fingerprinting), `gobuster` (directorios, wordlist `common.txt` de seclists) y `ffuf` (fuzzing de una lista de archivos sensibles/backups habituales — `.env`, `backup.zip`, `wp-config.php.bak`...).
 
 ## Herramientas encadenadas
 
 - nmap (puertos abiertos)
-- gobuster (rutas web, solo si nmap detectó un puerto http)
-
-Más herramientas (ffuf, whatweb...) según avance la Fase 1.
+- whatweb (tecnologías del servidor web, solo si hay puerto http)
+- gobuster (rutas web con wordlist genérica, solo si hay puerto http)
+- ffuf (archivos sensibles/backups habituales, solo si hay puerto http)
