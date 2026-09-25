@@ -24,8 +24,8 @@ services:
     restart: unless-stopped
 
   # Recurso SMB con un share público accesible sin autenticación y un usuario
-  # de prueba. Ejercita smbclient, enum4linux, nbtscan y netexec (sesión nula).
-  # Se publican 137-138/udp para que nbtscan (NetBIOS name service) responda.
+  # de prueba. Ejercita smbclient, enum4linux y netexec (sesión nula).
+  # (nbtscan no aplica: esta imagen no levanta nmbd / servicio de nombres NetBIOS.)
   smb:
     image: dperson/samba
     container_name: tarascan-lab-smb
@@ -40,8 +40,6 @@ services:
     ports:
       - "139:139"
       - "445:445"
-      - "137:137/udp"
-      - "138:138/udp"
     volumes:
       - ./smb-share:/share
     restart: unless-stopped
