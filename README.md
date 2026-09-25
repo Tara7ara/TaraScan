@@ -43,8 +43,13 @@ pip install --user --break-system-packages -e .
 tarascan <dominio-o-ip>
 ```
 
+Analiza **todos** los puertos web detectados (no solo el primero) y prueba cabeceras Host para descubrir sitios servidos por nombre (vhosts) detrás de un mismo puerto o proxy.
+
 Opciones:
 
+- `--full` — nmap escanea los 65535 puertos en vez del top-100 (más lento, pero no se deja nada).
+- `--only LISTA` — ejecuta solo esas herramientas, separadas por coma (p.ej. `--only nmap,nuclei,smbclient`).
+- `--skip LISTA` — omite esas herramientas (p.ej. `--skip nuclei,nikto`).
 - `--deep` — descubrimiento de contenido web recursivo con feroxbuster (más lento que gobuster, va fuera de la cadena por defecto).
 - `--sqli` — lanza sqlmap contra la web detectada. **Intrusivo.**
 - `--brute SERVICIO` — fuerza bruta de credenciales con hydra para ese servicio (`ssh`, `ftp`, `http-get`...). **Intrusivo, puede bloquear cuentas.**
@@ -94,48 +99,12 @@ Al final siempre se imprime un **Resumen** en lenguaje llano: puertos abiertos, 
 
 ## Salida de ejemplo
 
-```
-── tarascan · recon sobre scanme.nmap.org ──
+Cada herramienta sale en su propia caja, con una explicación de qué mira y notas
+que interpretan los hallazgos. Ejemplo real contra `scanme.nmap.org`:
 
-nmap — puertos abiertos
-┏━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Puerto ┃ Proto ┃ Servicio ┃ Versión               ┃
-┡━━━━━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
-│ 22     │ tcp   │ ssh      │ OpenSSH 6.6.1p1       │
-│ 80     │ tcp   │ http     │ Apache httpd 2.4.7    │
-└────────┴───────┴──────────┴───────────────────────┘
+![Ejemplo de salida de tarascan](docs/demo.svg)
 
-searchsploit — exploits conocidos (exploit-db)
-┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Puerto ┃ EDB-ID ┃ Tipo   ┃ Título                                ┃
-┡━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ 22     │ 45233  │ remote │ OpenSSH 2.3 < 7.7 - User Enumeration   │
-└────────┴────────┴────────┴───────────────────────────────────────┘
-
-wafw00f — detección de WAF
-  sin WAF detectado
-
-http — cabeceras de seguridad y métodos
-  server: Apache/2.4.7 (Ubuntu)
-  cabeceras de seguridad ausentes: 6
-    - HSTS (fuerza HTTPS)
-    - CSP (mitiga XSS/inyección)
-    ...
-
-nuclei — vulnerabilidades por plantillas
-┏━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
-┃ Severidad ┃ Plantilla  ┃ Nombre           ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
-│ medium    │ ...        │ ...              │
-└───────────┴────────────┴──────────────────┘
-
-Resumen
-  • 2 puerto(s) abierto(s)
-  • searchsploit encontró 1 exploit(s) potencial(es)
-  • web detectada en el puerto 80 (http://scanme.nmap.org)
-  • faltan 6 cabecera(s) de seguridad
-  • nuclei: 1 hallazgo(s)
-```
+Al final siempre hay un **Resumen** con lo esencial, marcando en rojo lo que conviene mirar primero.
 
 ## Herramientas encadenadas
 

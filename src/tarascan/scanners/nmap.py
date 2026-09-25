@@ -3,12 +3,14 @@
 import subprocess
 
 
-def scan(target: str) -> list[dict]:
+def scan(target: str, full: bool = False) -> list[dict]:
     # -sV añade detección de versión: da nombres de servicio más fiables y,
     # sobre todo, la versión concreta (7.º campo del formato grepable) que
-    # luego alimenta a searchsploit.
+    # luego alimenta a searchsploit. Con full=True escanea los 65535 puertos
+    # (-p-) en vez del top-100 (-F).
+    scope = "-p-" if full else "-F"
     result = subprocess.run(
-        ["nmap", "-F", "-sV", "-oG", "-", target],
+        ["nmap", scope, "-sV", "-oG", "-", target],
         capture_output=True,
         text=True,
         check=True,

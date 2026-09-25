@@ -4,6 +4,7 @@ que enumera directorios con una wordlist genérica)."""
 import json
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 
 COMMON_FILES = [
@@ -17,10 +18,15 @@ COMMON_FILES = [
     "wp-config.php.bak",
 ]
 
+# Nombre que casi seguro no existe: sirve de sonda de comodín. Si el servidor lo
+# devuelve como "encontrado" (proxy/WordPress que responde igual a todo), su
+# status+tamaño es la huella del comodín y se filtran los resultados iguales.
+_CALIBRATION = f"tarascan-cal-{uuid.uuid4().hex}.zzz"
+
 
 def scan(base_url: str) -> list[dict]:
     url = base_url.rstrip("/") + "/FUZZ"
-    wordlist = "\n".join(COMMON_FILES)
+    wordlist = "\n".join([_CALIBRATION, *COMMON_FILES])
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as out_file:
         out_path = Path(out_file.name)
@@ -37,7 +43,22 @@ def scan(base_url: str) -> list[dict]:
     finally:
         out_path.unlink(missing_ok=True)
 
-    return [
-        {"path": f"/{r['input']['FUZZ']}", "status": str(r["status"]), "size": str(r["length"])}
-        for r in data.get("results", [])
-    ]
+    results = data.get("results", [])
+    # Huella del comodín: cómo respondió el servidor a la sonda inexistente.
+    wildcard = None
+    for r in results:
+        if r["input"]["FUZZ"] == _CALIBRATION:
+            wildcard = (r["status"], r["length"])
+            break
+
+    findings = []
+    for r in results:
+        name = r["input"]["FUZZ"]
+        if name == _CALIBRATION:
+            continue
+        # Si el servidor es comodín, descartamos lo que responda igual que la sonda.
+        if wildcard is not None and (r["status"], r["length"]) == wildcard:
+            continue
+        findings.append({"path": f"/{name}", "status": str(r["status"]), "size": str(r["length"])})
+
+    return findings

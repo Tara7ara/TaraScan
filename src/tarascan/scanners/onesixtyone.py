@@ -19,9 +19,16 @@ def scan(target: str) -> list[dict]:
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
     found = []
+    seen = set()
     for line in result.stdout.splitlines():
         match = _LINE.match(line.strip())
         if match:
-            found.append({"community": match.group(2), "info": match.group(3).strip()})
+            community = match.group(2)
+            # onesixtyone puede repetir la misma comunidad (varias respuestas);
+            # nos quedamos con la primera de cada una.
+            if community in seen:
+                continue
+            seen.add(community)
+            found.append({"community": community, "info": match.group(3).strip()})
 
     return found
