@@ -49,6 +49,31 @@ Opciones:
 - `--sqli` — lanza sqlmap contra la web detectada. **Intrusivo.**
 - `--brute SERVICIO` — fuerza bruta de credenciales con hydra para ese servicio (`ssh`, `ftp`, `http-get`...). **Intrusivo, puede bloquear cuentas.**
 
+## Laboratorio de pruebas
+
+Escanea solo objetivos propios o con permiso. Para practicar sin meterte en un lío, el repo incluye en `test-lab/` un laboratorio en Docker con objetivos deliberadamente débiles y **locales**: un servidor web con rutas y ficheros descubribles y un recurso SMB accesible sin autenticación.
+
+Arrancarlo:
+
+```
+cd test-lab
+docker compose up -d      # o: docker-compose up -d
+```
+
+Escanearlo (literalmente la IP del Docker; en local es 127.0.0.1):
+
+```
+tarascan 127.0.0.1
+```
+
+Pararlo cuando termines:
+
+```
+docker compose down
+```
+
+> No expongas estos contenedores a Internet: están hechos para ser inseguros.
+
 ## Qué hace
 
 A partir de un escaneo de nmap (con detección de versión), encadena el resto según lo que encuentre:

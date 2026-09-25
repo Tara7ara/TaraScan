@@ -1,0 +1,2 @@
+Share público de pruebas. Cualquiera puede listarlo sin autenticación:
+es lo que detectan smbclient, enum4linux y netexec.

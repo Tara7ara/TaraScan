@@ -1,0 +1,47 @@
+# Laboratorio de pruebas para TaraScan.
+#
+# Levanta objetivos deliberadamente débiles y LOCALES para practicar recon de
+# forma legal (contra algo tuyo) antes de tocar cualquier sistema real. No
+# expongas estos puertos a Internet.
+#
+# Arrancar:   docker compose up -d      (o: docker-compose up -d)
+# Escanear:   tarascan 127.0.0.1
+# Parar:      docker compose down
+
+version: "3.8"
+
+services:
+  # Servidor web Apache sirviendo una web con rutas y ficheros "descubribles"
+  # y sin cabeceras de seguridad. Ejercita whatweb, http-headers, gobuster,
+  # ffuf, nikto, nuclei y searchsploit (versión de Apache en la cabecera).
+  web:
+    image: httpd:2.4
+    container_name: tarascan-lab-web
+    ports:
+      - "80:80"
+    volumes:
+      - ./web:/usr/local/apache2/htdocs:ro
+    restart: unless-stopped
+
+  # Recurso SMB con un share público accesible sin autenticación y un usuario
+  # de prueba. Ejercita smbclient, enum4linux, nbtscan y netexec (sesión nula).
+  # Se publican 137-138/udp para que nbtscan (NetBIOS name service) responda.
+  smb:
+    image: dperson/samba
+    container_name: tarascan-lab-smb
+    command:
+      - "-u"
+      - "testuser;testpass"
+      - "-s"
+      - "public;/share;yes;no;yes;all"
+      - "-g"
+      - "map to guest = Bad User"
+      - "-p"
+    ports:
+      - "139:139"
+      - "445:445"
+      - "137:137/udp"
+      - "138:138/udp"
+    volumes:
+      - ./smb-share:/share
+    restart: unless-stopped
