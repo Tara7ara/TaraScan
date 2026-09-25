@@ -51,9 +51,15 @@ Opciones:
 
 ## Laboratorio de pruebas
 
-Escanea solo objetivos propios o con permiso. Para practicar sin meterte en un lío, el repo incluye en `test-lab/` un laboratorio en Docker con objetivos deliberadamente débiles y **locales**: un servidor web con rutas y ficheros descubribles y un recurso SMB accesible sin autenticación.
+Escanea solo objetivos propios o con permiso. Para practicar sin meterte en un lío, el repo incluye en `test-lab/` un laboratorio en Docker con objetivos deliberadamente débiles y **locales**, pensado para que casi todas las herramientas tengan algo que encontrar:
 
-Arrancarlo:
+- **WordPress** (puerto 80) → whatweb, wafw00f, http-headers, gobuster, ffuf, nikto, nuclei, wpscan, searchsploit.
+- **HTTPS autofirmado** (443) → sslscan.
+- **SMB** con share público sin autenticación (139/445) → smbclient, enum4linux, netexec.
+- **SSH** con credencial débil `admin:password` (22) → searchsploit e `--brute ssh`.
+- **SNMP** con comunidad `public` (161/udp) → onesixtyone, snmp.
+
+Arrancarlo (la primera vez tarda un poco: descarga imágenes e instala WordPress):
 
 ```
 cd test-lab
@@ -66,10 +72,10 @@ Escanearlo (literalmente la IP del Docker; en local es 127.0.0.1):
 tarascan 127.0.0.1
 ```
 
-Pararlo cuando termines:
+Pararlo y borrar sus datos cuando termines:
 
 ```
-docker compose down
+docker compose down -v
 ```
 
 > No expongas estos contenedores a Internet: están hechos para ser inseguros.
