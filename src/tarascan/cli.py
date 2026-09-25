@@ -168,18 +168,40 @@ def _table_md(table: Table) -> list[str]:
 
 
 def _record_md(title: str, desc: str, body: list) -> None:
-    """Guarda la versión Markdown de una sección en el acumulador."""
+    """Guarda la versión Markdown de una sección en el acumulador.
+
+    Las tablas van como tablas Markdown; el texto libre (volcados de nmap NSE,
+    snmp, enum4linux, nikto...) va en bloques de código para que no se rompa el
+    render (Obsidian, etc. interpretan como Markdown los ':' , la indentación,
+    el JSON o las URLs de esa salida)."""
     md = [f"## {title}", ""]
     if desc:
         md += [f"*{desc}*", ""]
+
+    text_buf: list[str] = []
+
+    def flush() -> None:
+        if text_buf:
+            md.append("```text")
+            md.extend(text_buf)
+            md.append("```")
+            md.append("")
+            text_buf.clear()
+
     for item in body:
         if isinstance(item, Table):
+            flush()
             md += _table_md(item)
+            continue
+        text = _plain(item)
+        if text.lstrip().startswith("→"):
+            # Nota de interpretación: como cita, no dentro del bloque de código.
+            flush()
+            md += [f"> {text.strip()}", ""]
         else:
-            text = _plain(item)
-            # Dos espacios al final = salto de línea duro en Markdown, para que
-            # las líneas no se junten en un párrafo al renderizar.
-            md.append(text + "  " if text.strip() else text)
+            text_buf.append(text)
+    flush()
+
     md.append("")
     _MD.extend(md)
 
