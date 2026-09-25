@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from tarascan.scanners import (
@@ -387,7 +388,7 @@ def main() -> None:
             waf = res.value
             if waf["detected"]:
                 detail = waf["firewall"] + (f" ({waf['manufacturer']})" if waf.get("manufacturer") else "")
-                console.print(f"  [yellow]WAF detectado:[/] {detail}", markup=False, highlight=False)
+                console.print(f"  [yellow]WAF detectado:[/] {escape(detail)}", highlight=False)
                 console.print("  [dim]ojo: con WAF, muchos 403 de gobuster/ffuf pueden ser falsos positivos[/]")
                 summary.append(f"WAF detectado: {waf['firewall']}")
             else:
@@ -613,7 +614,7 @@ def main() -> None:
         communities = res.value
         if communities:
             for c in communities:
-                console.print(f"  [yellow]comunidad válida:[/] {c['community']}", markup=False, highlight=False)
+                console.print(f"  [yellow]comunidad válida:[/] {escape(c['community'])}", highlight=False)
                 if c["info"]:
                     console.print(f"    {c['info']}", markup=False, highlight=False)
             summary.append(f"[!] SNMP con comunidad(es) válida(s): {', '.join(c['community'] for c in communities)}")
