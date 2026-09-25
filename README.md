@@ -6,13 +6,24 @@ Wrapper en Python que encadena herramientas de recon ya instaladas y unifica su 
 
 ## Estado
 
-En desarrollo. Fase 1: recon de dominios/subdominios. La salida es por terminal; una exportación a Markdown llegará más adelante.
+En desarrollo, pero ya cubre de sobra el recon de Fase 1 (red, web y SMB). La salida es por terminal; la exportación a Markdown llegará más adelante.
+
+Las herramientas se lanzan **en paralelo** y la salida va apareciendo por bloques según terminan, siempre en el mismo orden. Mientras una herramienta lenta (nmap NSE, nuclei) sigue trabajando, se muestra un spinner para que se vea que no está colgado.
 
 ## Requisitos
 
-- Python 3.11+
-- nmap, gobuster, whatweb, ffuf, nikto, smbclient y enum4linux instalados y accesibles en el PATH
-- `wpscan` si quieres el análisis extra cuando se detecta WordPress
+- Python 3.11+ (la dependencia `dnspython` se instala sola).
+- **nmap** es el único imprescindible: es el punto de partida y decide qué más se lanza.
+- El resto son opcionales; si una no está en el PATH, esa sección avisa y el escaneo sigue:
+  - Web: `whatweb`, `gobuster`, `ffuf`, `nikto`, `nuclei`, `wafw00f`, `sslscan`, `wpscan`, `feroxbuster`.
+  - Red/SMB: `smbclient`, `enum4linux`, `nbtscan`, `netexec` (binario `nxc`).
+  - SNMP: `snmpwalk` (paquete `net-snmp`), `onesixtyone`.
+  - Otros: `searchsploit` (exploit-db), `nc`, `subfinder`, `sqlmap`, `hydra`.
+
+Notas:
+- `nuclei` necesita descargar sus plantillas la primera vez: `nuclei -update-templates`.
+- `gobuster`, `ffuf` y `onesixtyone` usan wordlists de `seclists` por defecto.
+- `netexec` va mejor instalado con pipx (`pipx install git+https://github.com/Pennyw0rth/NetExec`) que desde bundles empaquetados.
 
 ## Instalación
 
@@ -32,72 +43,77 @@ pip install --user --break-system-packages -e .
 tarascan <dominio-o-ip>
 ```
 
-Salida de ejemplo:
+Opciones:
+
+- `--deep` — descubrimiento de contenido web recursivo con feroxbuster (más lento que gobuster, va fuera de la cadena por defecto).
+- `--sqli` — lanza sqlmap contra la web detectada. **Intrusivo.**
+- `--brute SERVICIO` — fuerza bruta de credenciales con hydra para ese servicio (`ssh`, `ftp`, `http-get`...). **Intrusivo, puede bloquear cuentas.**
+
+## Qué hace
+
+A partir de un escaneo de nmap (con detección de versión), encadena el resto según lo que encuentre:
+
+- **DNS** (solo si el objetivo es un dominio): registros A/MX/NS/TXT..., intento de transferencia de zona (AXFR), fuerza bruta de subdominios habituales (con detección de wildcard) y subdominios pasivos por OSINT (`subfinder`).
+- **Siempre**: `searchsploit` busca exploits conocidos para cada servicio+versión detectado; los scripts NSE de nmap (`default` + `vuln` seguros) sobre los puertos abiertos; y una comprobación de SNMP (`onesixtyone` + `snmpwalk`), ya que 161/udp no aparece en el escaneo TCP.
+- **Web** (si hay un puerto con servicio "http"): `whatweb`, `wafw00f` (detección de WAF), análisis de cabeceras de seguridad y métodos HTTP, `gobuster` (directorios), `ffuf` (archivos sensibles/backups), `nikto`, `nuclei` (vulnerabilidades por plantillas) y, si `whatweb` detecta WordPress, `wpscan`.
+- **TLS** (en cada puerto HTTPS): `sslscan` — protocolos habilitados marcando los inseguros, cifrados débiles y datos del certificado.
+- **SMB** (si hay 139/445): `smbclient`, `enum4linux`, `nbtscan` y `netexec` (sesión nula).
+
+Al final siempre se imprime un **Resumen** en lenguaje llano: puertos abiertos, si hay web/SMB, hallazgos por herramienta y avisos marcados con `[!]` para lo más serio (TLS inseguro, métodos peligrosos, AXFR permitido, SNMP con comunidad válida...).
+
+## Salida de ejemplo
 
 ```
 ── tarascan · recon sobre scanme.nmap.org ──
 
 nmap — puertos abiertos
-┏━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
-┃ Puerto ┃ Proto ┃ Servicio ┃
-┡━━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
-│ 22     │ tcp   │ ssh      │
-│ 80     │ tcp   │ http     │
-└────────┴───────┴──────────┘
+┏━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Puerto ┃ Proto ┃ Servicio ┃ Versión               ┃
+┡━━━━━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 22     │ tcp   │ ssh      │ OpenSSH 6.6.1p1       │
+│ 80     │ tcp   │ http     │ Apache httpd 2.4.7    │
+└────────┴───────┴──────────┴───────────────────────┘
 
-whatweb — tecnologías detectadas
-┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
-┃ Plugin     ┃ Detalle       ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
-│ HTTPServer │ nginx/1.24.0  │
-│ Title      │ Bienvenido    │
-└────────────┴───────────────┘
+searchsploit — exploits conocidos (exploit-db)
+┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Puerto ┃ EDB-ID ┃ Tipo   ┃ Título                                ┃
+┡━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 22     │ 45233  │ remote │ OpenSSH 2.3 < 7.7 - User Enumeration   │
+└────────┴────────┴────────┴───────────────────────────────────────┘
 
-gobuster — rutas encontradas
-┏━━━━━━━━┳━━━━━━━━┓
-┃ Ruta   ┃ Status ┃
-┡━━━━━━━━╇━━━━━━━━┩
-│ /admin │ 301    │
-└────────┴────────┘
+wafw00f — detección de WAF
+  sin WAF detectado
 
-ffuf — archivos sensibles/backups
-┏━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
-┃ Ruta        ┃ Status ┃ Tamaño ┃
-┡━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
-│ /backup.zip │ 200    │ 8214   │
-└─────────────┴────────┴────────┘
+http — cabeceras de seguridad y métodos
+  server: Apache/2.4.7 (Ubuntu)
+  cabeceras de seguridad ausentes: 6
+    - HSTS (fuerza HTTPS)
+    - CSP (mitiga XSS/inyección)
+    ...
 
-nikto — configuración/vulnerabilidades web
-  - 6 cabeceras de seguridad recomendadas ausentes: content-security-policy,
-    strict-transport-security, x-content-type-options, referrer-policy,
-    permissions-policy, x-frame-options
-
-enum4linux — enumeración SMB
-  Usuarios
-    - testuser (RID 0x3e8)
-  Recursos compartidos
-    - public          Disk
+nuclei — vulnerabilidades por plantillas
+┏━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+┃ Severidad ┃ Plantilla  ┃ Nombre           ┃
+┡━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+│ medium    │ ...        │ ...              │
+└───────────┴────────────┴──────────────────┘
 
 Resumen
-  • 3 puerto(s) abierto(s)
+  • 2 puerto(s) abierto(s)
+  • searchsploit encontró 1 exploit(s) potencial(es)
   • web detectada en el puerto 80 (http://scanme.nmap.org)
-  • gobuster encontró 1 ruta(s)
-  • ffuf encontró 1 archivo(s) sensible(s)/backup(s)
-  • nikto reportó 1 hallazgo(s) de configuración
+  • faltan 6 cabecera(s) de seguridad
+  • nuclei: 1 hallazgo(s)
 ```
-
-Si nmap detecta un puerto web (servicio con "http" en el nombre), se lanzan automáticamente contra ese puerto: `whatweb` (fingerprinting), `gobuster` (directorios, wordlist `common.txt` de seclists), `ffuf` (fuzzing de una lista de archivos sensibles/backups habituales — `.env`, `backup.zip`, `wp-config.php.bak`...) y `nikto` (configuración/vulnerabilidades web básicas, resumida — las cabeceras de seguridad ausentes salen agrupadas en una línea en vez de repetidas). Si `whatweb` detecta WordPress, se añade `wpscan`.
-
-Si nmap detecta puerto 139 o 445 (SMB), se lanzan `smbclient` (listado de recursos compartidos sin autenticación) y `enum4linux` (enumeración de SO, shares y usuarios, agrupada por secciones).
-
-Al final siempre se imprime un **Resumen** con lo esencial en lenguaje llano: puertos abiertos, si hay web/SMB, y cuántos hallazgos encontró cada herramienta.
 
 ## Herramientas encadenadas
 
-- nmap (puertos abiertos)
-- whatweb (tecnologías del servidor web, solo si hay puerto http)
-- gobuster (rutas web con wordlist genérica, solo si hay puerto http)
-- ffuf (archivos sensibles/backups habituales, solo si hay puerto http)
-- nikto (configuración/vulnerabilidades web básicas, solo si hay puerto http)
-- wpscan (solo si whatweb detecta WordPress)
-- smbclient y enum4linux (recursos SMB y enumeración básica, solo si hay puerto 139/445)
+| Fase | Herramientas |
+|------|--------------|
+| Red / puertos | nmap (con versión y scripts NSE), nc (banners), searchsploit |
+| DNS (dominios) | dnspython (registros, AXFR, subdominios), subfinder |
+| Web | whatweb, wafw00f, cabeceras HTTP, gobuster, ffuf, nikto, nuclei, wpscan, feroxbuster (`--deep`) |
+| TLS | sslscan |
+| SMB | smbclient, enum4linux, nbtscan, netexec |
+| SNMP | onesixtyone, snmpwalk |
+| Intrusivas (opt-in) | sqlmap (`--sqli`), hydra (`--brute`) |
