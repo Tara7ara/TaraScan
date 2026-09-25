@@ -1,10 +1,13 @@
 import argparse
 import concurrent.futures
+import datetime
 import ipaddress
+import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, Group
@@ -52,6 +55,10 @@ GREY = "#787c99"
 # Cuántas herramientas pueden correr a la vez. Acotado a propósito: lanzar 20
 # procesos contra el mismo host a la vez lo satura y puede disparar WAF/límites.
 MAX_WORKERS = 8
+
+# Acumulador del informe en Markdown: cada panel añade aquí su versión en texto,
+# para poder guardarlo con -o (además de pintarlo en la terminal).
+_MD: list[str] = []
 
 
 @dataclass
@@ -137,6 +144,46 @@ def _note(text: str) -> str:
     return f"[{ORANGE}]→ {text}[/]"
 
 
+def _plain(item) -> str:
+    """Texto plano de un renderable (Text o cadena con markup), para el Markdown."""
+    if isinstance(item, Text):
+        return item.plain
+    return Text.from_markup(str(item)).plain
+
+
+def _table_md(table: Table) -> list[str]:
+    """Convierte una tabla de rich en una tabla de Markdown."""
+    headers = [_plain(c.header) for c in table.columns]
+    rows = ["| " + " | ".join(headers) + " |",
+            "| " + " | ".join("---" for _ in headers) + " |"]
+    nrows = max((len(c._cells) for c in table.columns), default=0)
+    for i in range(nrows):
+        cells = []
+        for c in table.columns:
+            raw = c._cells[i] if i < len(c._cells) else ""
+            cells.append(_plain(raw).replace("\n", " ").replace("|", "\\|"))
+        rows.append("| " + " | ".join(cells) + " |")
+    rows.append("")
+    return rows
+
+
+def _record_md(title: str, desc: str, body: list) -> None:
+    """Guarda la versión Markdown de una sección en el acumulador."""
+    md = [f"## {title}", ""]
+    if desc:
+        md += [f"*{desc}*", ""]
+    for item in body:
+        if isinstance(item, Table):
+            md += _table_md(item)
+        else:
+            text = _plain(item)
+            # Dos espacios al final = salto de línea duro en Markdown, para que
+            # las líneas no se junten en un párrafo al renderizar.
+            md.append(text + "  " if text.strip() else text)
+    md.append("")
+    _MD.extend(md)
+
+
 def _panel(title: str, desc: str, body: list, border: str = GREY) -> None:
     """Imprime una sección dentro de una caja: título, explicación y contenido."""
     parts: list = []
@@ -154,6 +201,7 @@ def _panel(title: str, desc: str, body: list, border: str = GREY) -> None:
             padding=(0, 1),
         )
     )
+    _record_md(title, desc, body)
 
 
 def _err_body(res: Res) -> list:
@@ -218,6 +266,14 @@ def main() -> None:
         "--deep",
         action="store_true",
         help="descubrimiento de contenido recursivo con feroxbuster (más lento que gobuster)",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        nargs="?",
+        const="",
+        metavar="RUTA",
+        help="guarda el informe en Markdown; sin valor, en el directorio actual; "
+             "con RUTA (fichero o carpeta), ahí",
     )
     args = parser.parse_args()
     target = args.target
@@ -819,6 +875,32 @@ def main() -> None:
     _panel("Resumen", "lo esencial de un vistazo (en rojo, lo que conviene mirar primero)", summary_body, border=ORANGE)
 
     executor.shutdown(wait=True)
+
+    # --- Exportar a Markdown si se pidió con -o/--output ---
+    if args.output is not None:
+        path = _resolve_output_path(args.output, target)
+        header = (
+            f"# tarascan · recon sobre {target}\n\n"
+            f"_{datetime.datetime.now():%Y-%m-%d %H:%M}_\n\n"
+        )
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(header + "\n".join(_MD), encoding="utf-8")
+            console.print(f"\n[{ORANGE}]Informe guardado en[/] {escape(str(path))}")
+        except OSError as exc:
+            error = Console(stderr=True, style="bold red")
+            error.print(f"no se pudo guardar el informe en {path}: {exc}", markup=False, highlight=False)
+
+
+def _resolve_output_path(value: str, target: str) -> str:
+    """Decide dónde guardar el .md: cwd por defecto, o la RUTA dada (fichero o carpeta)."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", target)
+    fname = f"tarascan-{safe}-{datetime.datetime.now():%Y%m%d-%H%M%S}.md"
+    if not value:  # -o sin valor: directorio actual con nombre automático
+        return os.path.join(os.getcwd(), fname)
+    if os.path.isdir(value) or value.endswith(os.sep):  # carpeta: nombre automático dentro
+        return os.path.join(value, fname)
+    return value  # ruta de fichero concreta
 
 
 if __name__ == "__main__":

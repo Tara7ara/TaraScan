@@ -6,7 +6,7 @@ Wrapper en Python que encadena herramientas de recon ya instaladas y unifica su 
 
 ## Estado
 
-En desarrollo, pero ya cubre de sobra el recon de Fase 1 (red, web y SMB). La salida es por terminal; la exportación a Markdown llegará más adelante.
+En desarrollo, pero ya cubre de sobra el recon de Fase 1 (red, web y SMB). La salida es por terminal y, con `-o`, se guarda también en Markdown.
 
 Las herramientas se lanzan **en paralelo** y la salida va apareciendo por bloques según terminan, siempre en el mismo orden. Mientras una herramienta lenta (nmap NSE, nuclei) sigue trabajando, se muestra un spinner para que se vea que no está colgado.
 
@@ -50,9 +50,12 @@ Opciones:
 - `--full` — nmap escanea los 65535 puertos en vez del top-100 (más lento, pero no se deja nada).
 - `--only LISTA` — ejecuta solo esas herramientas, separadas por coma (p.ej. `--only nmap,nuclei,smbclient`).
 - `--skip LISTA` — omite esas herramientas (p.ej. `--skip nuclei,nikto`).
+- `-o`, `--output [RUTA]` — guarda el informe en Markdown. Sin valor, lo deja en el directorio actual con un nombre automático (`tarascan-<objetivo>-<fecha>.md`). Con `RUTA`, si es una carpeta guarda dentro con nombre automático, y si es un fichero usa ese nombre.
 - `--deep` — descubrimiento de contenido web recursivo con feroxbuster (más lento que gobuster, va fuera de la cadena por defecto).
 - `--sqli` — lanza sqlmap contra la web detectada. **Intrusivo.**
 - `--brute SERVICIO` — fuerza bruta de credenciales con hydra para ese servicio (`ssh`, `ftp`, `http-get`...). **Intrusivo, puede bloquear cuentas.**
+
+La salida por terminal puede ser muy larga; para guardarla y leerla con calma, `tarascan objetivo -o` deja un `.md` con todo el informe (tablas incluidas).
 
 ## Laboratorio de pruebas
 
