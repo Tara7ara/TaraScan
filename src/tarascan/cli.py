@@ -45,7 +45,7 @@ from tarascan.scanners import (
     wpscan,
 )
 
-console = Console()
+console = Console(emoji=False)  # sin esto, ":cd:" de una MAC sale como emoji
 
 # Paleta (sin azul): naranja para acentos/títulos, morado secundario, gris para
 # las explicaciones y bordes.

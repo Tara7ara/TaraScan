@@ -45,6 +45,8 @@ tarascan [dominio-o-ip]
 
 Si no se especifica objetivo, usa automáticamente el fijado en `$T` o mediante `set-target`.
 
+¿No tienes objetivo propio para practicar? El repo trae un laboratorio en Docker con objetivos débiles y locales: míralo en [Laboratorio de pruebas](#laboratorio-de-pruebas) y lanza las pruebas contra `127.0.0.1` o el mapa contra su subred, sin tocar nada de fuera.
+
 ### Mapa de red / descubrimiento local
 
 Para rastrear la red local y ver todos los dispositivos conectados:
@@ -106,11 +108,31 @@ cd test-lab
 docker compose up -d      # o: docker-compose up -d
 ```
 
-Escanearlo (literalmente la IP del Docker; en local es 127.0.0.1):
+Escanearlo como objetivo concreto (literalmente la IP del Docker; en local es 127.0.0.1):
 
 ```
 tarascan 127.0.0.1
 ```
+
+Además, los contenedores viven en una subred Docker propia (`172.30.0.0/24`) con IP y MAC fijas, imitando una red con equipos variados, para que también puedas probar el **mapa de red**:
+
+```
+tarascan --net 172.30.0.0/24
+```
+
+Cada host está pensado para ejercitar una pieza del mapa (descubrimiento, puertos, banner, SMB, fabricante por OUI y SO deducido):
+
+- `.10` **web** (WordPress, 80) → SO por cabecera `Server`, fabricante HP.
+- `.11` **https** (443) → host con HTTPS suelto.
+- `.20` **smb** (139/445) → nombre y SO (tipo Windows) vía `netexec`.
+- `.30` **ssh** (22) → SO Linux por banner SSH.
+- `.40` **snmp** → host vivo con MAC de fabricante.
+- `.50` **router** (23/53) → MAC Cisco → `Router / Switch`.
+- `.60` **nas** (139/443) → MAC Synology → `NAS`.
+- `.70` **pi** (22) → banner SSH Raspbian + MAC Raspberry → `Linux (Raspberry Pi)`.
+- `.80` **mac** (443) → MAC Apple → `Apple macOS / iOS`.
+
+Los tres últimos y el router son dispositivos de pega (`test-lab/simdevice`): solo abren un par de puertos y su MAC decide el fabricante. Sirven para ver cómo tarascan deduce el tipo de equipo a partir del OUI.
 
 Pararlo y borrar sus datos cuando termines:
 

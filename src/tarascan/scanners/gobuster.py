@@ -13,7 +13,7 @@ _STATUS_CODES = "200,204,301,302,307,401,403"
 def scan(target: str, wordlist: str = DEFAULT_WORDLIST) -> list[dict]:
     url = target if target.startswith("http") else f"http://{target}"
     result = subprocess.run(
-        ["gobuster", "dir", "-u", url, "-w", wordlist, "-q", "--no-error", "-b", "", "-s", _STATUS_CODES],
+        ["gobuster", "dir", "-k", "-u", url, "-w", wordlist, "-q", "--no-error", "-b", "", "-s", _STATUS_CODES],
         capture_output=True,
         text=True,
         check=True,
