@@ -78,6 +78,7 @@ Analiza **todos** los puertos web detectados (no solo el primero) y prueba cabec
 
 Opciones:
 
+- `--net`, `--map [CIDR]` — modo mapa de red local en vez de recon de un objetivo (ver sección "Mapa de red / descubrimiento local" arriba). Sin CIDR usa tu subred actual.
 - `--full` — nmap escanea los 65535 puertos en vez del top-100 (más lento, pero no se deja nada).
 - `--only LISTA` — ejecuta solo esas herramientas, separadas por coma (p.ej. `--only nmap,nuclei,smbclient`).
 - `--skip LISTA` — omite esas herramientas (p.ej. `--skip nuclei,nikto`).
