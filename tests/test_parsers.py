@@ -4,13 +4,14 @@ real de cada herramienta y se comprueba el parseo. Se ejecutan sin pytest:
     python -m unittest discover -s tests
 """
 
+import os
 import subprocess
 import types
 import unittest
 from unittest import mock
 
 from tarascan import cli
-from tarascan.scanners import gobuster, netexec, nmap, searchsploit, whatweb
+from tarascan.scanners import gobuster, net_map, netexec, nmap, searchsploit, whatweb
 
 
 def _fake_run(stdout="", stderr="", returncode=0):
@@ -124,6 +125,75 @@ class NetexecTests(unittest.TestCase):
         with mock.patch.object(subprocess, "run", _fake_run(stderr="ImportError: tsts", returncode=1)):
             with self.assertRaises(subprocess.CalledProcessError):
                 netexec.scan("1.2.3.4")
+
+
+class TargetResolutionTests(unittest.TestCase):
+    def test_default_target_from_env(self):
+        with mock.patch.dict(os.environ, {"T": "10.10.11.200"}):
+            self.assertEqual(cli._get_default_target(), "10.10.11.200")
+
+    def test_default_target_from_state_file(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("pathlib.Path.is_file", return_value=True), \
+                 mock.patch("pathlib.Path.read_text", return_value="10.10.14.5\n"):
+                self.assertEqual(cli._get_default_target(), "10.10.14.5")
+
+    def test_default_target_none_when_empty(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("pathlib.Path.is_file", return_value=False):
+                self.assertIsNone(cli._get_default_target())
+
+
+class NetMapTests(unittest.TestCase):
+    def test_parse_nmap_sn(self):
+        output = (
+            "# Nmap scan\n"
+            "Host: 192.168.1.1 (gateway.local)\tStatus: Up\n"
+            "Host: 192.168.1.154 ()\tStatus: Up\n"
+            "Host: 192.168.1.200 ()\tStatus: Down\n"
+        )
+        hosts = net_map.parse_nmap_sn(output)
+        self.assertEqual(len(hosts), 2)
+        self.assertEqual(hosts["192.168.1.1"], "gateway.local")
+        self.assertEqual(hosts["192.168.1.154"], "")
+
+    def test_load_oui_prefixes(self):
+        content = "# Comment\n00000C Cisco Systems\n244BFE ASUSTek Computer\n"
+        with mock.patch("pathlib.Path.is_file", return_value=True), \
+             mock.patch("pathlib.Path.read_text", return_value=content):
+            table = net_map.load_oui_prefixes()
+            self.assertEqual(table.get("00000C"), "Cisco Systems")
+            self.assertEqual(table.get("244BFE"), "ASUSTek Computer")
+
+    def test_format_windows_version(self):
+        self.assertEqual(net_map.format_windows_version("10.0.26100"), "Windows 11 (b26100)")
+        self.assertEqual(net_map.format_windows_version("10.0.19045"), "Windows 10 (b19045)")
+        self.assertEqual(net_map.format_windows_version("6.3.9600"), "Windows 8.1")
+        self.assertEqual(net_map.format_windows_version("6.1.7601"), "Windows 7")
+
+    def test_parse_rdp_ntlm(self):
+        out = (
+            "Nmap scan report for 192.168.1.146\n"
+            "PORT     STATE SERVICE\n"
+            "3389/tcp open  ms-wbt-server\n"
+            "| rdp-ntlm-info:\n"
+            "|   NetBIOS_Computer_Name: WIN-DESKTOP-01\n"
+            "|   Product_Version: 10.0.26100\n"
+        )
+        res = net_map.parse_rdp_ntlm(out)
+        self.assertEqual(res["192.168.1.146"]["name"], "WIN-DESKTOP-01")
+        self.assertEqual(res["192.168.1.146"]["os"], "Windows 11 (b26100)")
+
+    def test_parse_nxc_smb(self):
+        out = "SMB  192.168.1.145  445  PC-OFICINA-01  [*] Windows 11 / Server 2025 Build 26100 x64 (name:PC-OFICINA-01)\n"
+        res = net_map.parse_nxc_smb(out)
+        self.assertEqual(res["192.168.1.145"]["name"], "PC-OFICINA-01")
+        self.assertIn("Windows 11", res["192.168.1.145"]["os"])
+
+    def test_parse_ssh_os(self):
+        self.assertEqual(net_map.parse_ssh_os("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"), "Linux (Ubuntu)")
+        self.assertEqual(net_map.parse_ssh_os("SSH-2.0-OpenSSH_8.4p1 Debian-5+deb11u1"), "Linux (Debian)")
+        self.assertEqual(net_map.parse_ssh_os(""), "")
 
 
 if __name__ == "__main__":

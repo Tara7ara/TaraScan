@@ -6,7 +6,7 @@ Wrapper en Python que encadena herramientas de recon ya instaladas y unifica su 
 
 ## Estado
 
-En desarrollo, pero ya cubre de sobra el recon de Fase 1 (red, web y SMB). La salida es por terminal y, con `-o`, se guarda también en Markdown.
+En desarrollo, pero ya cubre de sobra el recon de Fase 1 (red, web y SMB). Además del recon de un objetivo concreto, tiene un modo de **mapa de red local** (`--net`) que lista los dispositivos conectados con su SO, puertos, MAC y fabricante. La salida es por terminal y, con `-o`, se guarda también en Markdown.
 
 Las herramientas se lanzan **en paralelo** y la salida va apareciendo por bloques según terminan, siempre en el mismo orden. Mientras una herramienta lenta (nmap NSE, nuclei) sigue trabajando, se muestra un spinner para que se vea que no está colgado.
 
@@ -40,8 +40,39 @@ pip install --user --break-system-packages -e .
 ## Uso
 
 ```
-tarascan <dominio-o-ip>
+tarascan [dominio-o-ip]
 ```
+
+Si no se especifica objetivo, usa automáticamente el fijado en `$T` o mediante `set-target`.
+
+### Mapa de red / descubrimiento local
+
+Para rastrear la red local y ver todos los dispositivos conectados:
+
+```
+tarascan --net
+# o con alias:
+tarascan --map
+```
+
+Detecta automáticamente la interfaz activa, tu IP, gateway y subred. También puedes pasar una subred concreta (o pasar un CIDR como objetivo):
+
+```
+tarascan --net 192.168.1.0/24
+tarascan 192.168.1.0/24
+```
+
+Muestra una tabla con IP, Hostname, Sistema Operativo y Versión (Windows 10/11 con número de build, Linux, Samba, etc.), Puertos abiertos, MAC, fabricante (base de prefijos OUI) y roles (gateway, este equipo).
+
+Combina en paralelo:
+- Ping sweep de nmap troceado por subredes.
+- Extracción de nombres de equipo y versión de Windows vía RDP NTLM (`3389`).
+- Extracción de dominio, nombre y SO vía SMB (`netexec`/`445`).
+- Nombres NetBIOS con `nbtscan` (`137/udp`).
+- Banners SSH (`22`) y HTTP (`80/8080`) para identificación de distribuciones Linux.
+- Resolución DNS inversa rápida y caché ARP del kernel.
+
+### Opciones de recon individual
 
 Analiza **todos** los puertos web detectados (no solo el primero) y prueba cabeceras Host para descubrir sitios servidos por nombre (vhosts) detrás de un mismo puerto o proxy.
 
@@ -113,6 +144,7 @@ Al final siempre hay un **Resumen** con lo esencial, marcando en rojo lo que con
 
 | Fase | Herramientas |
 |------|--------------|
+| Mapa de red (`--net`) | nmap (ping sweep), RDP NTLM, netexec (SMB), nbtscan, banners SSH/HTTP, ARP, OUI |
 | Red / puertos | nmap (con versión y scripts NSE), nc (banners), searchsploit |
 | DNS (dominios) | dnspython (registros, AXFR, subdominios), subfinder |
 | Web | whatweb, wafw00f, cabeceras HTTP, gobuster, ffuf, nikto, nuclei, wpscan, feroxbuster (`--deep`) |

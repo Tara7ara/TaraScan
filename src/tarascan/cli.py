@@ -24,6 +24,7 @@ from tarascan.scanners import (
     gobuster,
     http_headers,
     hydra,
+    net_map,
     netcat,
     netexec,
     nbtscan,
@@ -102,6 +103,22 @@ def _is_ip(target: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _get_default_target() -> str | None:
+    """Devuelve el objetivo fijado en $T o en ~/.local/state/target si existe."""
+    env_t = os.environ.get("T", "").strip()
+    if env_t:
+        return env_t
+    state_file = Path.home() / ".local" / "state" / "target"
+    if state_file.is_file():
+        try:
+            val = state_file.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+        except OSError:
+            pass
+    return None
 
 
 def _search_term(port: dict) -> str:
@@ -253,12 +270,102 @@ def _table(*columns: str) -> Table:
     return t
 
 
+def _run_net_map(net_arg: str, output_path: str | None) -> None:
+    """Modo de descubrimiento de red: mapea hosts activos, MACs y fabricantes."""
+    local_info = net_map.detect_local_network()
+
+    if net_arg in ("auto", "", None):
+        if not local_info or not local_info.get("cidr"):
+            error = Console(stderr=True, style="bold red")
+            error.print("no se pudo detectar la subred local automáticamente; especifica una (p.ej. --net 192.168.1.0/24)", highlight=False)
+            sys.exit(1)
+        cidr = local_info["cidr"]
+    else:
+        cidr = net_arg
+
+    console.print()
+    console.rule(f"[bold {ORANGE}]tarascan[/] · mapa de red [{PURPLE}]{escape(cidr)}[/]", style=GREY)
+    console.print()
+
+    if local_info and local_info.get("interface"):
+        gw_txt = local_info.get("gateway") or "-"
+        console.print(
+            f"  [{GREY}]interfaz:[/] {local_info['interface']}   "
+            f"[{GREY}]tu IP:[/] {local_info.get('local_ip', '-')}   "
+            f"[{GREY}]gateway:[/] {gw_txt}\n"
+        )
+
+    with console.status(f"[{ORANGE}]escaneando subred[/][{GREY}]… ({cidr})[/]", spinner="dots"):
+        devices = net_map.scan(cidr, local_info)
+
+    if not devices:
+        _panel("Dispositivos en la red", "barrido de hosts activos en la subred", [Text("sin dispositivos detectados", style=GREY)], border=ORANGE)
+    else:
+        t = _table("IP", "Hostname", "S.O. / Versión", "Puertos", "MAC", "Fabricante", "Rol")
+        for d in devices:
+            role_style = "bold yellow" if "gateway" in d["role"] else "bold green" if "este equipo" in d["role"] else ""
+            t.add_row(
+                d["ip"],
+                d["hostname"] if d["hostname"] != "-" else Text("-", style=GREY),
+                d["os"] if d["os"] != "-" else Text("-", style=GREY),
+                Text(d["ports"], style=ORANGE) if d["ports"] != "-" else Text("-", style=GREY),
+                d["mac"],
+                d["vendor"] if d["vendor"] != "-" else Text("-", style=GREY),
+                Text(d["role"], style=role_style) if d["role"] else "",
+            )
+        _panel(
+            "Dispositivos en la red",
+            f"hosts activos en {cidr} (ping sweep + RDP/SMB NTLM + banners + ARP)",
+            [t],
+            border=ORANGE,
+        )
+
+    os_identified = sum(1 for d in devices if d.get("os") and d["os"] != "-")
+    names_identified = sum(1 for d in devices if d.get("hostname") and d["hostname"] != "-")
+    summary_body = [
+        Text(f"• {len(devices)} dispositivo(s) activo(s) en {cidr}"),
+        Text(f"• {names_identified} nombre(s) de equipo identificado(s)"),
+        Text(f"• {os_identified} sistema(s) operativo(s) perfilado(s)"),
+    ]
+    if local_info and local_info.get("gateway"):
+        summary_body.append(Text(f"• gateway: {local_info['gateway']}"))
+    _panel("Resumen de red", "lo esencial del segmento", summary_body, border=ORANGE)
+
+    if output_path is not None:
+        path = _resolve_output_path(output_path, f"net-{cidr}")
+        header = (
+            f"# tarascan · mapa de red {cidr}\n\n"
+            f"_{datetime.datetime.now():%Y-%m-%d %H:%M}_\n\n"
+        )
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(header + "\n".join(_MD), encoding="utf-8")
+            console.print(f"\n[{ORANGE}]Informe guardado en[/] {escape(str(path))}")
+        except OSError as exc:
+            error = Console(stderr=True, style="bold red")
+            error.print(f"no se pudo guardar el informe en {path}: {exc}", markup=False, highlight=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="tarascan",
         description="Recon de un objetivo encadenando herramientas ya instaladas, salida unificada por terminal.",
     )
-    parser.add_argument("target", help="dominio o IP a escanear")
+    parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="dominio o IP a escanear (por defecto usa $T o set-target si está fijado)",
+    )
+    parser.add_argument(
+        "--net",
+        "--map",
+        dest="net",
+        nargs="?",
+        const="auto",
+        metavar="CIDR",
+        help="escanea la red y lista dispositivos activos con IP, MAC y fabricante (por defecto tu subred actual)",
+    )
     parser.add_argument(
         "--full",
         action="store_true",
@@ -298,7 +405,28 @@ def main() -> None:
              "con RUTA (fichero o carpeta), ahí",
     )
     args = parser.parse_args()
-    target = args.target
+
+    # Modo mapa de red (--net, --map o CIDR posicional)
+    if args.net is not None:
+        _run_net_map(args.net, args.output)
+        return
+    if args.target and "/" in args.target:
+        try:
+            net_obj = ipaddress.ip_network(args.target.strip(), strict=False)
+            if net_obj.prefixlen < 32:
+                _run_net_map(str(net_obj), args.output)
+                return
+        except ValueError:
+            pass
+
+    target = args.target.strip() if args.target else None
+    using_default = False
+    if not target:
+        target = _get_default_target()
+        using_default = bool(target)
+
+    if not target:
+        parser.error("falta el objetivo: pasa una IP/dominio, usa --net o fija uno con set-target / $T")
 
     # Selección de herramientas. nmap es la base y siempre corre.
     only = {x.strip() for x in args.only.split(",")} if args.only else None
@@ -310,7 +438,8 @@ def main() -> None:
         return (only is None or name in only) and name not in skip
 
     console.print()
-    console.rule(f"[bold {ORANGE}]tarascan[/] · recon sobre [{PURPLE}]{escape(target)}[/]", style=GREY)
+    origin_note = f" [{GREY}]($T)[/]" if using_default else ""
+    console.rule(f"[bold {ORANGE}]tarascan[/] · recon sobre [{PURPLE}]{escape(target)}[/]{origin_note}", style=GREY)
     console.print()
     summary: list[str] = []
 
