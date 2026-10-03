@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="140" alt="Logo de TaraScan"></p>
+
 # TaraScan
 
 Wrapper en Python que encadena herramientas de recon ya instaladas y unifica su salida en algo legible, en vez de ir lanzando cada herramienta suelta y leyendo formatos distintos.
