@@ -212,15 +212,6 @@ A partir de un escaneo de nmap (con detección de versión), encadena el resto s
 
 Al final siempre se imprime un **Resumen** en lenguaje llano: puertos abiertos, si hay web/SMB, hallazgos por herramienta y avisos marcados con `[!]` para lo más serio (TLS inseguro, métodos peligrosos, AXFR permitido, SNMP con comunidad válida...).
 
-## Salida de ejemplo
-
-Cada herramienta sale en su propia caja, con una explicación de qué mira y notas
-que interpretan los hallazgos. Ejemplo real contra `scanme.nmap.org`:
-
-![Ejemplo de salida de tarascan](docs/demo.svg)
-
-Al final siempre hay un **Resumen** con lo esencial, marcando en rojo lo que conviene mirar primero.
-
 ## Herramientas encadenadas
 
 | Fase | Herramientas |
