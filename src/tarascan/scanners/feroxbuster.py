@@ -1,8 +1,4 @@
-"""Wrapper sobre feroxbuster: descubrimiento de contenido web recursivo.
-
-Herramienta más pesada que gobuster (recorre subdirectorios), por eso se lanza
-solo bajo el flag --deep, no en la cadena por defecto.
-"""
+"""Wrapper sobre feroxbuster: descubrimiento de contenido web recursivo."""
 
 import json
 import subprocess

@@ -84,7 +84,7 @@ tarascan --net 192.168.1.0/24
 tarascan 192.168.1.0/24
 ```
 
-Muestra una tabla con IP, Hostname, Sistema Operativo y Versión (Windows 10/11 con número de build, Linux, Samba, etc.), Puertos abiertos, MAC, fabricante (base de prefijos OUI) y roles (gateway, este equipo).
+Muestra una tabla con IP, Hostname, Sistema Operativo y Versión (Windows 10/11 con número de build, Linux, Samba, etc.), Puertos abiertos, MAC, fabricante (base de prefijos OUI) y roles (gateway, este equipo). Además guarda los puertos de cada host, así que después puedes lanzar `tarascan report <IP>`, `tarascan audit <IP>` o `tarascan cve -t <IP>` sobre cualquier equipo del mapa sin volver a escanearlo.
 
 Combina en paralelo:
 - Ping sweep de nmap troceado por subredes.
@@ -102,6 +102,7 @@ Opciones:
 
 - `--net`, `--map [CIDR]` — modo mapa de red local en vez de recon de un objetivo (ver sección "Mapa de red / descubrimiento local" arriba). Sin CIDR usa tu subred actual.
 - `--full` — nmap escanea los 65535 puertos en vez del top-100 (más lento, pero no se deja nada).
+- `--fresh` — ignora los puertos en caché y re-escanea con nmap desde cero. tarascan guarda los puertos de cada objetivo en `~/.cache/tarascan/` y, si vuelves a lanzarlo poco después, los reutiliza en vez de re-escanear (TTL configurable con `TARASCAN_CACHE_TTL`, en minutos; 30 por defecto, 0 lo desactiva). `--full` siempre escanea de nuevo.
 - `--only LISTA` — ejecuta solo esas herramientas, separadas por coma (p.ej. `--only nmap,nuclei,smbclient`).
 - `--skip LISTA` — omite esas herramientas (p.ej. `--skip nuclei,nikto`).
 - `-o`, `--output [RUTA]` — guarda el informe en Markdown. Sin valor, lo deja en el directorio actual con un nombre automático (`tarascan-<objetivo>-<fecha>.md`). Con `RUTA`, si es una carpeta guarda dentro con nombre automático, y si es un fichero usa ese nombre.
@@ -109,12 +110,45 @@ Opciones:
 - `--sqli` — lanza sqlmap contra la web detectada. **Intrusivo.**
 - `--brute SERVICIO` — fuerza bruta de credenciales con hydra para ese servicio (`ssh`, `ftp`, `http-get`...). **Intrusivo, puede bloquear cuentas.**
 - `--ai` — al terminar, pasa el informe a un modelo de lenguaje y añade un resumen, lo crítico y comandos sugeridos. Opcional; necesita una clave de API propia (ver [Análisis con IA](#análisis-con-ia-opcional)).
+- `--guided` — **copiloto iterativo**: el modelo conoce toda la herramienta y, tras el recon (o el mapa, si lo combinas con `--net`), propone el siguiente paso con cualquier comando de tarascan —una flag (`--sqli`, `--brute ssh`, `--deep`, `--full`) o un subcomando (`audit`, `web`, `cve`, `report`...)— en un menú interactivo. Tú eliges, tarascan lo ejecuta, y **el copiloto reanaliza los resultados nuevos y vuelve a proponer**, en bucle, hasta que sales con `q` (tope de rondas con `TARASCAN_GUIDED_ROUNDS`, 5 por defecto). Si en los resultados aparece un **hash, una cadena codificada o un JWT**, el copiloto propone analizarlo con `tarascan hash/decode/jwt <el valor>` para extraer toda la info. Necesita `TARASCAN_AI_KEY`.
+- `--auto` — **copiloto manos libres**: como `--guided` pero ejecuta solo la mejor sugerencia de cada ronda sin preguntar, encadenando pasos hasta el tope de rondas (Ctrl-C para cortar). Implica `--guided`. Úsalo solo en objetivos autorizados: puede llegar a lanzar acciones intrusivas (`--sqli`, `--brute`) por su cuenta.
 
 La salida por terminal puede ser muy larga; para guardarla y leerla con calma, `tarascan objetivo -o` deja un `.md` con todo el informe (tablas incluidas).
 
+## Subcomandos
+
+Además del recon, tarascan trae utilidades para el resto del flujo de una auditoría o una caja de HTB, para no saltar entre 20 herramientas sueltas. Cada una tiene su `-h`.
+
+Reconocimiento y post:
+
+- `tarascan osint <dominio>` — OSINT **pasivo**: subdominios en Certificate Transparency (crt.sh), registros DNS (A/NS/MX, con pista de si está detrás de Cloudflare/AWS...), políticas de correo (SPF/DMARC/DKIM, avisa si el dominio es suplantable) y cabeceras de seguridad/CORS. No manda paquetes de ataque al objetivo.
+- `tarascan web <url>` — enumeración web quirúrgica: busca swagger/openapi/api-docs/graphql, prueba la introspección de GraphQL y audita cabeceras y CORS.
+- `tarascan audit <ssh|tls|smb> <objetivo>` — chequeos de configuración débil: algoritmos obsoletos de SSH, protocolos/cifrados TLS deprecados, null sessions y SMB signing. Sin servicio (`tarascan audit <IP>`) audita todos los que salían abiertos en el último escaneo.
+- `tarascan cve <producto> [versión]` — exploits conocidos del banner vía searchsploit (exploit-db local), con su EDB-ID. No se inventa CVE. Sin argumentos (`tarascan cve`) busca exploits de todos los servicios guardados del objetivo activo.
+
+Utilidades:
+
+- `tarascan hash <cadena>` — identifica el tipo de hash y da el modo de Hashcat (`-m`) y el formato de John. Reconoce los clásicos (MD5, NTLM, SHA*, bcrypt, *crypt de Unix...) y los de AD/pentesting (Kerberos TGS-REP/AS-REP, NetNTLMv2, pwdump LM:NT, Django). Acepta tubería: `cat hashes.txt | tarascan hash` (saca una tabla compacta con varios).
+- `tarascan decode <cadena>` — decodificador en cascada (Base64, Hex, URL, binario, entidades HTML, timestamp Unix, ROT13). Acepta tubería: `echo -n admin | base64 | tarascan decode`.
+- `tarascan jwt <token>` — desglosa header y payload, valida `exp` y avisa de `alg=none` o datos sensibles en claro. Acepta el token por tubería.
+- `tarascan shell [-p PUERTO] [--b64] [--url]` — one-liners de reverse shell con tu IP ya rellenada (detecta `tun0`).
+- `tarascan serve [PUERTO]` — servidor HTTP local e imprime los comandos de descarga en la víctima (certutil, iwr, wget, curl).
+- `tarascan pivot` — chuleta de túneles: Chisel, SSH forwarding (`-D`/`-L`/`-R`) y Ligolo-ng, con tu IP ya puesta.
+- `tarascan gtfobins <binario>` — **escalada de privilegios offline**: one-liners de GTFOBins (sudo, SUID, capabilities) para pasar a root, desde una base de datos local empaquetada (sin internet). Acepta varios binarios o por tubería (`sudo -l | tarascan gtfobins`); sin argumentos lista los disponibles.
+
+Gestión de la sesión:
+
+- `tarascan ws init <nombre>` / `ws list` / `ws use <nombre>` — crea y maneja el workspace de la auditoría (`~/audit/<nombre>/` con `scans/`, `evidence/`, `notes.md`, `report/`).
+- `tarascan note "mensaje"` — apunta una línea con timestamp en el cuaderno del workspace activo.
+- `tarascan report [objetivo] [--html]` — informe consolidado (resumen ejecutivo, detalle técnico y checklist de metodología) a partir de lo que tarascan ha ido guardando de cada objetivo. Cada recon guarda su estado solo en `~/.cache/tarascan/`, así que el informe sale sin repetir el escaneo.
+- `tarascan diff [objetivo]` — compara los dos últimos escaneos del objetivo y muestra qué cambió: puertos nuevos/cerrados, cambios de versión y de tecnologías. Útil para control de cambios en auditorías/labs largos.
+- `tarascan completion [zsh|bash]` — imprime el script de autocompletado. Instálalo con `tarascan completion zsh > ~/.local/share/zsh/site-functions/_tarascan` (o rápido: `source <(tarascan completion zsh)`). Completa subcomandos, flags, los servicios de `audit`, los binarios de `gtfobins` y tus workspaces en `ws use`.
+
 ## Análisis con IA (opcional)
 
-Con `--ai`, al terminar el recon tarascan le pasa el informe a un modelo de lenguaje y añade una sección final con un resumen de verdad, los puntos críticos con su recomendación y comandos concretos para los siguientes pasos. Está apagado por defecto: sin el flag, tarascan no habla con ninguna IA.
+Con `--ai`, al terminar el recon tarascan le pasa el informe a un modelo de lenguaje y añade una sección final con un resumen de verdad, los puntos críticos con su recomendación y comandos concretos para los siguientes pasos. Está apagado por defecto: sin el flag, tarascan no habla con ninguna IA. El análisis se guarda junto al objetivo, así que `tarascan report <IP>` lo incluye al final del informe.
+
+Para un paso más (que la IA ejecute sus propias sugerencias en bucle), mira `--guided` en las opciones de recon.
 
 ### Necesitas tu propia clave de NVIDIA (gratis)
 
@@ -147,17 +181,28 @@ export TARASCAN_AI_BASE="https://integrate.api.nvidia.com/v1"   # por defecto
 export TARASCAN_AI_MODEL="nvidia/nemotron-3-ultra-550b-a55b"    # preferido; elige otro en build.nvidia.com
 ```
 
+El tiempo de espera por cada petición se controla con `TARASCAN_AI_TIMEOUT` (300s por defecto para `--ai`). El modo **`--guided`** es interactivo, así que usa un timeout más corto (**60s** por defecto) para no quedarse colgado minutos si el endpoint va lento: si un modelo tarda, pasa al siguiente de la cadena. Se puede ajustar por separado con `TARASCAN_AI_GUIDED_TIMEOUT`:
+
+```
+export TARASCAN_AI_TIMEOUT=300          # espera por modelo en --ai
+export TARASCAN_AI_GUIDED_TIMEOUT=60    # espera por modelo en --guided (interactivo)
+```
+
 > **Privacidad:** con `--ai`, el informe (IPs, nombres de equipo, servicios y versiones) se envía al endpoint que hayas configurado, que es un tercero. Úsalo solo con datos que puedas compartir; para redes o clientes reales, mejor no.
 
 ## Laboratorio de pruebas
 
 Escanea solo objetivos propios o con permiso. Para practicar sin meterte en un lío, el repo incluye en `test-lab/` un laboratorio en Docker con objetivos deliberadamente débiles y **locales**, pensado para que casi todas las herramientas tengan algo que encontrar:
 
-- **WordPress** (puerto 80) → whatweb, wafw00f, http-headers, gobuster, ffuf, nikto, nuclei, wpscan, searchsploit.
-- **HTTPS autofirmado** (443) → sslscan.
-- **SMB** con share público sin autenticación (139/445) → smbclient, enum4linux, netexec.
-- **SSH** con credencial débil `admin:password` (22) → searchsploit e `--brute ssh`.
-- **SNMP** con comunidad `public` (161/udp) → onesixtyone, snmp.
+- **WordPress** (`.10`, puerto 80) → whatweb, wafw00f, http-headers, gobuster, ffuf, nikto, nuclei, wpscan, searchsploit.
+- **API con swagger + GraphQL** (`.12`, 80) → `tarascan web` (detecta swagger/openapi y la introspección GraphQL abierta).
+- **Web vulnerable a SQLi** (`.13`, 80) → `--sqli` (sqlmap detecta el parámetro `id`).
+- **HTTPS autofirmado** (`.11`, 443) → sslscan, `audit tls`.
+- **SMB** con share público sin autenticación (`.20`, 139/445) → smbclient, enum4linux, netexec, `audit smb`.
+- **FTP vsftpd 2.3.4** con credencial débil `admin:123456` (`.21`, 21) → `--brute ftp` y `cve` (searchsploit encuentra el backdoor).
+- **SSH** (`.30`, 22) → banner, `audit ssh`, `--brute ssh`.
+- **SNMP** con comunidad `public` que expone un hash y un JWT a propósito (`.40`, 161/udp) → onesixtyone, snmp; el copiloto `--guided` los descubre y encadena a `tarascan hash/jwt`.
+- **Dispositivos de pega** (router/NAS/Raspberry/Apple, `.50`–`.80`) → `tarascan --net` (deducción de fabricante/SO por OUI).
 
 Arrancarlo (la primera vez tarda un poco: descarga imágenes e instala WordPress):
 

@@ -178,6 +178,8 @@ services:
     container_name: tarascan-lab-snmp
     ports:
       - "161:161/udp"
+    volumes:
+      - ./snmp/snmpd.conf:/etc/snmp/snmpd.conf:ro
     networks:
       labnet:
         ipv4_address: 172.30.0.40
@@ -241,6 +243,40 @@ services:
       labnet:
         ipv4_address: 172.30.0.80
         mac_address: "00:03:93:aa:bb:80"   # Apple (OUI)
+    restart: unless-stopped
+
+  # --- Servicios "con chicha" para probar subcomandos concretos ---
+
+  # FTP vsftpd con banner 2.3.4 y cred débil (admin:123456): para --brute ftp y cve.
+  ftp:
+    build: ./ftp
+    image: tarascan-lab-ftp
+    container_name: tarascan-lab-ftp
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.21
+    restart: unless-stopped
+
+  # API con swagger.json + GraphQL de introspección abierta: para `tarascan web`.
+  webapi:
+    image: nginx:alpine
+    container_name: tarascan-lab-webapi
+    volumes:
+      - ./webapi/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./webapi/swagger.json:/usr/share/nginx/html/swagger.json:ro
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.12
+    restart: unless-stopped
+
+  # Web vulnerable a SQLi (parámetro id inyectable): para `tarascan <ip> --sqli`.
+  sqli:
+    build: ./sqli
+    image: tarascan-lab-sqli
+    container_name: tarascan-lab-sqli
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.13
     restart: unless-stopped
 
 networks:

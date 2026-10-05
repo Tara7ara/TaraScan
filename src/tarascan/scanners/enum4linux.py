@@ -1,11 +1,4 @@
-"""Wrapper sobre enum4linux: enumeración SMB/AD básica (SO, shares, usuarios).
-
-Salida de texto plano heredada sin formato estable entre versiones. En vez de
-intentar parsear cada campo, se agrupan las líneas bajo las secciones que el
-propio enum4linux ya imprime (cabeceras tipo "===( Users on X )==="), con
-nombres en español, descartando el ruido conocido (avisos del smbclient local
-sin relación con el objetivo, líneas vacías, el preámbulo repetitivo).
-"""
+"""Wrapper sobre enum4linux: enumeración SMB/AD básica (SO, shares, usuarios)."""
 
 import re
 import subprocess

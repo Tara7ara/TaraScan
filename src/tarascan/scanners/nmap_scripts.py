@@ -1,10 +1,4 @@
-"""Scripts NSE de nmap: pasa los scripts 'default' y 'vuln and safe' sobre los puertos ya abiertos.
-
-Se limita a la categoría 'safe' de vuln para no lanzar comprobaciones intrusivas
-o que puedan tumbar el servicio — recon, no explotación. Se excluye 'vulners'
-a propósito: vuelca cientos de CVEs por servicio (ruido) y se solapa con la
-información que ya da searchsploit.
-"""
+"""Scripts NSE de nmap: pasa los scripts 'default' y 'vuln and safe' sobre los puertos ya abiertos."""
 
 import subprocess
 

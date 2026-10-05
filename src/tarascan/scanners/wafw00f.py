@@ -1,8 +1,4 @@
-"""Wrapper sobre wafw00f: detección de WAF/IPS delante de una web.
-
-Útil para interpretar 403/redirecciones raras: si hay WAF, muchos "hallazgos"
-de gobuster/ffuf pueden ser falsos positivos del propio WAF.
-"""
+"""Wrapper sobre wafw00f: detección de WAF/IPS delante de una web."""
 
 import json
 import subprocess

@@ -1,8 +1,4 @@
-"""Análisis de cabeceras HTTP y métodos permitidos, con la stdlib (sin binario extra).
-
-Revisa qué cabeceras de seguridad faltan y qué métodos HTTP admite el servidor
-(destacando los peligrosos como PUT/DELETE/TRACE).
-"""
+"""Análisis de cabeceras HTTP y métodos permitidos, con la stdlib (sin binario extra)."""
 
 import ssl
 import urllib.error

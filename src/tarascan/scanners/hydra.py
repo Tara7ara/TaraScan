@@ -1,13 +1,9 @@
-"""Wrapper sobre hydra: fuerza bruta de credenciales contra un servicio.
-
-Herramienta intrusiva y ruidosa — solo se lanza a petición explícita
-(flag --brute), nunca en la cadena automática. Puede bloquear cuentas.
-"""
+"""Wrapper sobre hydra: fuerza bruta de credenciales contra un servicio."""
 
 import subprocess
 
 DEFAULT_USERS = "/usr/share/seclists/Usernames/top-usernames-shortlist.txt"
-DEFAULT_PASSWORDS = "/usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-100.txt"
+DEFAULT_PASSWORDS = "/usr/share/seclists/Passwords/Common-Credentials/best110.txt"
 
 
 def scan(

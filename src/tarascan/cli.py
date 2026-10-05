@@ -16,6 +16,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from tarascan import commands, store
 from tarascan.scanners import (
     ai_advisor,
     dns,
@@ -186,12 +187,7 @@ def _table_md(table: Table) -> list[str]:
 
 
 def _record_md(title: str, desc: str, body: list) -> None:
-    """Guarda la versión Markdown de una sección en el acumulador.
-
-    Las tablas van como tablas Markdown; el texto libre (volcados de nmap NSE,
-    snmp, enum4linux, nikto...) va en bloques de código para que no se rompa el
-    render (Obsidian, etc. interpretan como Markdown los ':' , la indentación,
-    el JSON o las URLs de esa salida)."""
+    """Acumula la versión Markdown de una sección (tablas como tablas, texto libre en bloques de código)."""
     md = [f"## {title}", ""]
     if desc:
         md += [f"*{desc}*", ""]
@@ -272,11 +268,7 @@ def _table(*columns: str) -> Table:
 
 
 def _run_ai(target: str | None = None, kind: str = "target") -> None:
-    """Pasa el informe ya generado (_MD) a un modelo y pinta su análisis.
-
-    Opt-in con --ai. Avisa de que los datos salen a un tercero antes de enviar,
-    porque el informe puede llevar IPs, nombres de equipo y versiones.
-    """
+    """Pasa el informe (_MD) al modelo y pinta su análisis. Opt-in con --ai; avisa antes de enviar a un tercero."""
     from rich.markdown import Markdown
 
     if not ai_advisor.get_key():
@@ -321,8 +313,339 @@ def _run_ai(target: str | None = None, kind: str = "target") -> None:
     _MD.append(answer)
     _MD.append("")
 
+    # Guarda el análisis en la persistencia para que `report` lo incluya.
+    if kind == "target" and target:
+        try:
+            data = store.load_target(target)
+            data["ai"] = {"model": model_used, "text": answer}
+            store.save_target(data)
+        except Exception:  # noqa: BLE001
+            pass
 
-def _run_net_map(net_arg: str, output_path: str | None, use_ai: bool = False) -> None:
+
+# Secciones de _MD que no son una herramienta de recon (resúmenes, IA): fuera.
+_SCAN_SKIP = ("Resumen", "Análisis con IA", "Copiloto")
+
+# "Plugins" de whatweb que son metadatos, no tecnología real: no van a `tech`.
+_WHATWEB_NOISE = {
+    "Country", "IP", "Title", "Script", "MetaGenerator", "UncommonHeaders",
+    "X-Powered-By", "HTML5", "Email", "Cookies", "PasswordField", "Frame",
+    "RedirectLocation", "Via-Proxy", "Strict-Transport-Security", "HTTPServer",
+}
+
+
+def _scans_from_md() -> dict:
+    """Deriva de las cabeceras '## <herramienta · descripción>' de _MD qué
+    herramientas corrieron, para que `report` liste la fase ejecutada."""
+    scans: dict = {}
+    for line in _MD:
+        if not line.startswith("## "):
+            continue
+        title = line[3:].strip()
+        if any(title.startswith(skip) for skip in _SCAN_SKIP):
+            continue
+        if " · " in title:
+            tool, desc = title.split(" · ", 1)
+        else:
+            tool, desc = title, ""
+        scans.setdefault(tool.strip(), {"resumen": desc.strip()})
+    return scans
+
+
+# Servicio probable por número de puerto, para enriquecer lo que da el mapa de red.
+_PORT_SERVICE = {
+    "21": "ftp", "22": "ssh", "23": "telnet", "25": "smtp", "53": "dns",
+    "80": "http", "110": "pop3", "111": "rpcbind", "135": "msrpc",
+    "139": "netbios-ssn", "143": "imap", "161": "snmp", "389": "ldap",
+    "443": "https", "445": "microsoft-ds", "993": "imaps", "995": "pop3s",
+    "1433": "ms-sql", "3306": "mysql", "3389": "ms-wbt-server", "5432": "postgresql",
+    "5900": "vnc", "6379": "redis", "8080": "http-proxy", "8443": "https-alt",
+}
+
+
+def _persist_net_devices(devices: list[dict]) -> None:
+    """Guarda los puertos de cada host del mapa en su propio JSON de objetivo."""
+    for d in devices:
+        ip = d.get("ip")
+        raw = d.get("ports", "")
+        if not ip or raw in ("", "-"):
+            continue
+        ports = []
+        for tok in raw.split(","):
+            num = tok.strip()
+            if num.isdigit():
+                ports.append({"port": num, "service": _PORT_SERVICE.get(num, ""), "version": ""})
+        if ports:
+            try:
+                store.record_scan(ip, ports=ports)
+            except Exception:  # noqa: BLE001 - comodidad, no debe tumbar el mapa
+                pass
+
+
+def _cached_ports(target: str) -> dict | None:
+    """Devuelve {ports, age} si hay puertos guardados del objetivo lo bastante
+    recientes como para no re-escanear. TTL en minutos vía
+    TARASCAN_CACHE_TTL (30 por defecto; 0 desactiva la caché). None si no sirve."""
+    try:
+        ttl_min = int(os.environ.get("TARASCAN_CACHE_TTL", "30") or 30)
+    except ValueError:
+        ttl_min = 30
+    if ttl_min <= 0:
+        return None
+    try:
+        data = store.load_target(target)
+    except Exception:  # noqa: BLE001
+        return None
+    ports, updated = data.get("ports") or [], data.get("updated")
+    if not ports or not updated:
+        return None
+    try:
+        age = datetime.datetime.now() - datetime.datetime.fromisoformat(updated)
+    except (ValueError, TypeError):
+        return None
+    if age > datetime.timedelta(minutes=ttl_min):
+        return None
+    norm = [{"port": p.get("port"), "proto": p.get("proto", "tcp"),
+             "service": p.get("service", "") or "?", "version": p.get("version", "")}
+            for p in ports if p.get("port")]
+    mins = int(age.total_seconds() // 60)
+    return {"ports": norm, "age": f"hace {mins}m" if mins else "hace <1m"}
+
+
+def _persist_recon(target: str, ports: list[dict], summary: list[str], tech: list[str] | None = None) -> None:
+    """Guarda puertos, hallazgos, tecnologías y herramientas ejecutadas del recon
+    para que `report` y las fases posteriores tengan el histórico completo."""
+    findings = [line.strip() for line in summary]  # conserva el marcador [!] de lo crítico
+    clean_ports = [
+        {"port": p.get("port"), "service": p.get("service"), "version": p.get("version", "")}
+        for p in ports
+    ]
+    try:
+        store.record_scan(target, ports=clean_ports, findings=findings,
+                          tech=tech or None, scans=_scans_from_md())
+        store.add_snapshot(target, clean_ports, tech)
+        store.set_active_target(target)
+    except Exception:  # noqa: BLE001 - la persistencia es una comodidad, no debe tumbar nada
+        pass
+
+
+# Flags de tarascan que el modo guiado puede proponer y ejecutar. Lista blanca:
+# nada fuera de aquí se lanza, por si el modelo se inventa algo.
+_GUIDED_ALLOWED = {"--full", "--deep", "--sqli", "--brute", "--only", "--skip"}
+
+# Flags que el guiado de RED puede proponer: solo recon, nada intrusivo (no se
+# lanza fuerza bruta/sqlmap en masa contra toda una subred desde un barrido).
+_GUIDED_NET_ALLOWED = {"--full", "--deep"}
+
+# Subcomandos que no necesitan objetivo (el copiloto los propone como utilidad).
+_GUIDED_UTILS = {"hash", "decode", "jwt", "shell", "serve", "pivot", "gtfobins"}
+
+
+def _validate_guided_cmd(cmd: str, *, target: str | None = None,
+                         net_ips: set | None = None, allow_flags: set) -> str | None:
+    """Valida una propuesta del copiloto (subcomando o recon con flag de la lista blanca).
+    Devuelve el comando normalizado, o None si no es tarascan reconocible."""
+    import shlex
+
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        return None
+    if len(parts) < 2 or parts[0] != "tarascan":
+        return None
+
+    head = parts[1]
+    # Forma b) subcomando conocido.
+    if head in commands.REGISTRY:
+        if head in _GUIDED_UTILS:
+            return " ".join(parts)  # utilidades: sin objetivo que validar
+        rest = parts[2:]
+        if net_ips is not None:
+            return " ".join(parts) if any(p in net_ips for p in rest) else None
+        if target is not None:
+            return " ".join(parts) if any(target in p for p in rest) else None
+        return " ".join(parts)
+
+    # Forma a) recon con flags: 'tarascan <objetivo> [flags]'.
+    tgt = head
+    flags = [p for p in parts if p.startswith("--")]
+    if any(f not in allow_flags for f in flags):
+        return None
+    if net_ips is not None:
+        return " ".join(parts) if tgt in net_ips else None
+    if not flags:  # en modo objetivo, recon sin flag no aporta (ya se hizo)
+        return None
+    return f"tarascan {target} {' '.join(parts[2:])}".strip()
+
+
+def _guided_ask(report_text: str, kind_label: str, target: str, kind: str):
+    """Pide al copiloto el análisis + acciones sobre el informe que se le pasa.
+    Devuelve (resumen, acciones, modelo) o None si no hay clave / falla la IA."""
+    from rich.markdown import Markdown
+
+    if not ai_advisor.get_key():
+        _panel("Copiloto IA", "modo guiado", [Text(
+            "falta la clave: define TARASCAN_AI_KEY (build.nvidia.com). Mira el README.",
+            style="bold red")], border="red")
+        return None
+
+    try:
+        with console.status(f"[{ORANGE}]pensando[/][{GREY}]… (el copiloto analiza {kind_label})[/]", spinner="dots"):
+            resumen, acciones, model_used = ai_advisor.suggest_actions(report_text, target, kind=kind)
+    except ai_advisor.AIError as exc:
+        _panel("Copiloto IA", "modo guiado", [Text(str(exc), style="bold red")], border="red")
+        return None
+
+    if resumen:
+        console.print(Panel(Markdown(resumen),
+                            title=f"[bold {ORANGE}]Copiloto · análisis[/] [{GREY}]({escape(model_used)})[/]",
+                            title_align="left", border_style=PURPLE, padding=(0, 1)))
+    return resumen, acciones, model_used
+
+
+def _guided_menu_pick(validas: list[dict]) -> list[dict] | None:
+    """Pinta el menú y devuelve la selección (o None para salir/cancelar)."""
+    body = []
+    for i, a in enumerate(validas, 1):
+        body.append(Text.from_markup(f"[bold {ORANGE}][{i}][/] [{PURPLE}]{escape(a['comando'])}[/]"))
+        if a["motivo"]:
+            body.append(Text(f"    {a['motivo']}", style=GREY))
+    _panel("Copiloto · siguientes pasos", "elige qué lanzar; al terminar reanaliza y propone más", body, border=ORANGE)
+
+    try:
+        choice = console.input(
+            f"[{ORANGE}]Qué lanzo[/] [{GREY}]([1-{len(validas)}] separados por espacio, "
+            f"a=todas, q=salir):[/] "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        console.print(f"\n[{GREY}]cancelado[/]")
+        return None
+
+    if choice in ("q", ""):
+        return None
+    if choice == "a":
+        return validas
+    idx = {int(n) for n in re.findall(r"\d+", choice)}
+    seleccion = [a for i, a in enumerate(validas, 1) if i in idx]
+    if not seleccion:
+        console.print(f"[{GREY}]nada seleccionado[/]")
+        return None
+    return seleccion
+
+
+def _exec_capture(cmd: str) -> str:
+    """Lanza un comando de tarascan mostrándolo en vivo y devolviendo su salida
+    (recortada) para realimentar al copiloto en la siguiente ronda."""
+    import shlex
+
+    console.rule(f"[bold {ORANGE}]ejecutando[/] [{PURPLE}]{escape(cmd)}[/]", style=GREY)
+    try:
+        proc = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+    except (FileNotFoundError, OSError) as exc:
+        Console(stderr=True, style="bold red").print(
+            f"no se pudo ejecutar '{cmd}': {exc}", markup=False, highlight=False)
+        return f"(no se pudo ejecutar: {exc})"
+    buf: list[str] = []
+    if proc.stdout:
+        for line in proc.stdout:
+            sys.stdout.write(line)  # en vivo para el usuario
+            buf.append(line)
+    proc.wait()
+    sys.stdout.flush()
+    return "".join(buf)[-6000:]  # solo la cola, para no inflar el prompt
+
+
+def _guided_loop(report0: str, target: str, kind: str, validate, auto: bool = False) -> None:
+    """Copiloto iterativo: analiza -> propone -> ejecuta -> reanaliza, hasta salir o agotar rondas.
+    auto=True: manos libres, ejecuta la mejor sugerencia de cada ronda sin preguntar."""
+    try:
+        max_rondas = int(os.environ.get("TARASCAN_GUIDED_ROUNDS", "5") or 5)
+    except ValueError:
+        max_rondas = 5
+
+    if auto:
+        console.print(Panel(
+            Text("Modo manos libres: el copiloto ejecutará sus propias sugerencias "
+                 f"sin preguntar, hasta {max_rondas} rondas. Solo lanza comandos de "
+                 "tarascan. Ctrl-C para cortar.", style=ORANGE),
+            title=f"[bold {ORANGE}]Copiloto --auto[/]", title_align="left",
+            border_style="red", padding=(0, 1)))
+    else:
+        console.print(
+            f"[{GREY}]El informe (IPs, servicios, versiones) se envía al endpoint de IA "
+            f"para proponer los siguientes pasos. Copiloto iterativo: tras ejecutar, reanaliza.[/]"
+        )
+    report_acc = report0
+    ejecutados: set[str] = set()
+
+    try:
+        for ronda in range(1, max_rondas + 1):
+            etiqueta = ("el recon" if kind == "target" else "la red") if ronda == 1 else "los nuevos resultados"
+            got = _guided_ask(report_acc, etiqueta, target, kind)
+            if got is None:
+                return
+            _, acciones, _ = got
+
+            validas: list[dict] = []
+            for a in acciones:
+                norm = validate(a.get("comando") or "")
+                if norm and norm not in ejecutados:
+                    validas.append({"comando": norm, "motivo": a.get("motivo", "")})
+            if not validas:
+                _panel("Copiloto · siguientes pasos", "",
+                       [Text("el copiloto no ve nada nuevo que accionar. Fin de la sesión.", style=GREY)], border=ORANGE)
+                return
+
+            if auto:
+                # Manos libres: la mejor sugerencia (la primera, ya ordenada por el modelo).
+                seleccion = [validas[0]]
+                _panel("Copiloto · siguientes pasos (auto)", "lanzando automáticamente la mejor sugerencia", [
+                    Text.from_markup(f"[bold {ORANGE}]→[/] [{PURPLE}]{escape(validas[0]['comando'])}[/]"),
+                    *( [Text(f"   {validas[0]['motivo']}", style=GREY)] if validas[0]["motivo"] else [] ),
+                ], border=ORANGE)
+            else:
+                seleccion = _guided_menu_pick(validas)
+                if not seleccion:
+                    return
+
+            for a in seleccion:
+                ejecutados.add(a["comando"])
+                out = _exec_capture(a["comando"])
+                report_acc += f"\n\n## salida de `{a['comando']}`\n{out}"
+
+            # Mantén el contexto acotado: esencia del recon inicial + lo más reciente.
+            if len(report_acc) > 20000:
+                report_acc = report0[:4000] + "\n\n[...]\n\n" + report_acc[-16000:]
+            console.print(f"\n[{GREY}]— el copiloto reanaliza con los resultados nuevos (ronda {ronda + 1}) —[/]\n")
+    except KeyboardInterrupt:
+        console.print(f"\n[{GREY}]copiloto detenido por el usuario.[/]")
+        return
+
+    console.print(f"[{GREY}]fin del copiloto (tope de {max_rondas} rondas). Relanza --guided para seguir.[/]")
+
+
+def _run_guided(target: str, args) -> None:
+    """Copiloto IA iterativo sobre el recon de un objetivo."""
+    _guided_loop(
+        "\n".join(_MD), target, "target",
+        lambda c: _validate_guided_cmd(c, target=target, allow_flags=_GUIDED_ALLOWED),
+        auto=getattr(args, "auto", False),
+    )
+
+
+def _run_guided_net(cidr: str, devices: list[dict], auto: bool = False) -> None:
+    """Copiloto IA iterativo sobre un mapa de red."""
+    ips = {d.get("ip") for d in devices}
+    _guided_loop(
+        "\n".join(_MD), cidr, "net",
+        lambda c: _validate_guided_cmd(c, net_ips=ips, allow_flags=_GUIDED_NET_ALLOWED),
+        auto=auto,
+    )
+
+
+def _run_net_map(net_arg: str, output_path: str | None, use_ai: bool = False,
+                 use_guided: bool = False, use_auto: bool = False) -> None:
     """Modo de descubrimiento de red: mapea hosts activos, MACs y fabricantes."""
     local_info = net_map.detect_local_network()
 
@@ -383,7 +706,13 @@ def _run_net_map(net_arg: str, output_path: str | None, use_ai: bool = False) ->
         summary_body.append(Text(f"• gateway: {local_info['gateway']}"))
     _panel("Resumen de red", "lo esencial del segmento", summary_body, border=ORANGE)
 
-    if use_ai:
+    # Persiste cada host del mapa para que report/audit/cve funcionen por IP sin
+    # re-escanear (sin pisar un recon completo previo, gracias al merge de store).
+    _persist_net_devices(devices)
+
+    if use_guided:
+        _run_guided_net(cidr, devices, auto=use_auto)
+    elif use_ai:
         _run_ai(cidr, kind="net")
 
     if output_path is not None:
@@ -402,9 +731,17 @@ def _run_net_map(net_arg: str, output_path: str | None, use_ai: bool = False) ->
 
 
 def main() -> None:
+    # Despacho de subcomandos (hash, shell, osint, report...). Si el primer
+    # argumento es uno de ellos, va por su propia ruta y no por el recon.
+    argv = sys.argv[1:]
+    if argv and commands.is_command(argv[0]):
+        sys.exit(commands.dispatch(argv[0], argv[1:]))
+
     parser = argparse.ArgumentParser(
         prog="tarascan",
         description="Recon de un objetivo encadenando herramientas ya instaladas, salida unificada por terminal.",
+        epilog="Subcomandos: " + ", ".join(name for name, _ in commands.help_lines())
+        + ". Usa 'tarascan <subcomando> -h' para su ayuda.",
     )
     parser.add_argument(
         "target",
@@ -425,6 +762,11 @@ def main() -> None:
         "--full",
         action="store_true",
         help="nmap escanea los 65535 puertos (-p-) en vez del top-100 (más lento)",
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="ignora los puertos en caché y re-escanea con nmap desde cero",
     )
     parser.add_argument(
         "--only",
@@ -458,6 +800,19 @@ def main() -> None:
              "y comandos sugeridos; requiere TARASCAN_AI_KEY (ver README)",
     )
     parser.add_argument(
+        "--guided",
+        action="store_true",
+        help="copiloto IA: analiza el recon (o el mapa con --net) y propone el "
+             "siguiente paso con cualquier comando de tarascan (flags o subcomandos "
+             "como audit/web/cve/report) en un menú interactivo; requiere TARASCAN_AI_KEY",
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="copiloto manos libres: ejecuta solo la mejor sugerencia en cada ronda "
+             "sin preguntar, encadenando pasos hasta agotar el tope (implica --guided)",
+    )
+    parser.add_argument(
         "-o", "--output",
         nargs="?",
         const="",
@@ -466,16 +821,18 @@ def main() -> None:
              "con RUTA (fichero o carpeta), ahí",
     )
     args = parser.parse_args()
+    if args.auto:
+        args.guided = True  # el modo manos libres es una variante del copiloto
 
     # Modo mapa de red (--net, --map o CIDR posicional)
     if args.net is not None:
-        _run_net_map(args.net, args.output, args.ai)
+        _run_net_map(args.net, args.output, args.ai, args.guided, args.auto)
         return
     if args.target and "/" in args.target:
         try:
             net_obj = ipaddress.ip_network(args.target.strip(), strict=False)
             if net_obj.prefixlen < 32:
-                _run_net_map(str(net_obj), args.output, args.ai)
+                _run_net_map(str(net_obj), args.output, args.ai, args.guided, args.auto)
                 return
         except ValueError:
             pass
@@ -503,6 +860,7 @@ def main() -> None:
     console.rule(f"[bold {ORANGE}]tarascan[/] · recon sobre [{PURPLE}]{escape(target)}[/]{origin_note}", style=GREY)
     console.print()
     summary: list[str] = []
+    tech: list[str] = []  # tecnologías web detectadas (whatweb/wpscan), para el report
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
     is_domain = not _is_ip(target)
@@ -524,16 +882,28 @@ def main() -> None:
         f["snmp"] = executor.submit(_call, "snmp", snmp.scan, target)
     if args.brute and on("hydra"):
         f["hydra"] = executor.submit(_call, "hydra", hydra.scan, target, args.brute)
-    f["nmap"] = executor.submit(_call, "nmap", nmap.scan, target, args.full)
+    # Caché de puertos: si hay un escaneo reciente y no se pide
+    # --fresh ni --full (que exige escaneo completo nuevo), reutilizamos nmap.
+    ports_cache = None if (args.fresh or args.full) else _cached_ports(target)
+    from_cache = False
 
-    scope = "65535 puertos" if args.full else "top-100"
-    with console.status(f"[{ORANGE}]lanzando nmap[/][{GREY}]… ({scope}; recon inicial en paralelo)[/]", spinner="dots"):
-        nmap_res = f["nmap"].result()
-    if nmap_res.error:
-        _panel("nmap · puertos abiertos", "servicios y versiones expuestos en el objetivo", _err_body(nmap_res), border="red")
-        executor.shutdown(wait=False, cancel_futures=True)
-        sys.exit(1)
-    ports = nmap_res.value
+    if ports_cache is not None:
+        ports = ports_cache["ports"]
+        from_cache = True
+        console.print(
+            f"[{GREY}]puertos reutilizados de la caché ({ports_cache['age']}); "
+            f"--fresh para re-escanear con nmap.[/]"
+        )
+    else:
+        f["nmap"] = executor.submit(_call, "nmap", nmap.scan, target, args.full)
+        scope = "65535 puertos" if args.full else "top-100"
+        with console.status(f"[{ORANGE}]lanzando nmap[/][{GREY}]… ({scope}; recon inicial en paralelo)[/]", spinner="dots"):
+            nmap_res = f["nmap"].result()
+        if nmap_res.error:
+            _panel("nmap · puertos abiertos", "servicios y versiones expuestos en el objetivo", _err_body(nmap_res), border="red")
+            executor.shutdown(wait=False, cancel_futures=True)
+            sys.exit(1)
+        ports = nmap_res.value
 
     # ------------------------------------------------------------------ #
     # Fase 2: lo que depende de los puertos detectados.
@@ -681,9 +1051,12 @@ def main() -> None:
     else:
         t = _table("Puerto", "Proto", "Servicio", "Versión")
         for p in ports:
-            t.add_row(p["port"], p["proto"], p["service"], p.get("version", "") or "?")
+            t.add_row(p["port"], p.get("proto", "tcp"), p["service"], p.get("version", "") or "?")
         body = [t]
-    _panel("nmap · puertos abiertos", "qué servicios y versiones expone el objetivo", body)
+        if from_cache:
+            body.append(_note(f"puertos de la caché ({ports_cache['age']}); usa --fresh para re-escanear."))
+    titulo = "nmap · puertos (caché)" if from_cache else "nmap · puertos abiertos"
+    _panel(titulo, "qué servicios y versiones expone el objetivo", body)
     summary.append(f"{len(ports)} puerto(s) abierto(s)" if ports else "ningún puerto abierto en el escaneo")
 
     # --- nc (banners) ---
@@ -754,6 +1127,9 @@ def main() -> None:
                 for name, value in info["plugins"].items():
                     t.add_row(name, value)
                 body = [t]
+                for name in info["plugins"]:
+                    if name not in _WHATWEB_NOISE and name not in tech:
+                        tech.append(name)
             _panel(f"whatweb · tecnologías ({url})", "qué software y frameworks usa el servidor web", body)
             if info and "WordPress" in info["plugins"] and on("wpscan"):
                 d["wpscan"] = executor.submit(_call, "wpscan", wpscan.scan, url)
@@ -1088,8 +1464,17 @@ def main() -> None:
 
     executor.shutdown(wait=True)
 
-    # --- Análisis con IA (opt-in con --ai) ---
-    if args.ai:
+    # --- Persistencia: guarda lo descubierto para report/fases posteriores ---
+    _persist_recon(target, ports, summary, tech)
+
+    # --- Modo guiado (copiloto IA): analiza y propone flags en un menú ---
+    if args.guided:
+        _run_guided(target, args)
+        if args.output is None:
+            return
+
+    # --- Análisis con IA (opt-in con --ai; --guided ya lo cubre) ---
+    if args.ai and not args.guided:
         _run_ai(target)
 
     # --- Exportar a Markdown si se pidió con -o/--output ---

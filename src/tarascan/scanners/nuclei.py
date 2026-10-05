@@ -1,8 +1,4 @@
-"""Wrapper sobre nuclei: escáner de vulnerabilidades por plantillas.
-
-Se excluye la severidad 'info' para no ahogar la salida en detecciones triviales;
-recon centrado en lo que importa (low/medium/high/critical).
-"""
+"""Wrapper sobre nuclei: escáner de vulnerabilidades por plantillas."""
 
 import json
 import subprocess

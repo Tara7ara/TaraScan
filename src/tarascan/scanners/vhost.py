@@ -1,9 +1,4 @@
-"""Enumeración de vhosts por cabecera Host.
-
-Muchos servidores (y sobre todo los reverse-proxy como nginx-proxy-manager)
-sirven sitios distintos según la cabecera Host. Escaneando por IP solo se ve el
-sitio por defecto; probando distintos Host se descubren los demás.
-"""
+"""Enumeración de vhosts por cabecera Host."""
 
 import ssl
 import urllib.error
