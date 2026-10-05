@@ -4,6 +4,7 @@ real de cada herramienta y se comprueba el parseo. Se ejecutan sin pytest:
     python -m unittest discover -s tests
 """
 
+import json
 import os
 import subprocess
 import types
@@ -11,7 +12,7 @@ import unittest
 from unittest import mock
 
 from tarascan import cli
-from tarascan.scanners import gobuster, net_map, netexec, nmap, searchsploit, whatweb
+from tarascan.scanners import ai_advisor, gobuster, net_map, netexec, nmap, searchsploit, whatweb
 
 
 def _fake_run(stdout="", stderr="", returncode=0):
@@ -194,6 +195,58 @@ class NetMapTests(unittest.TestCase):
         self.assertEqual(net_map.parse_ssh_os("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"), "Linux (Ubuntu)")
         self.assertEqual(net_map.parse_ssh_os("SSH-2.0-OpenSSH_8.4p1 Debian-5+deb11u1"), "Linux (Debian)")
         self.assertEqual(net_map.parse_ssh_os(""), "")
+
+
+class AIAdvisorTests(unittest.TestCase):
+    def test_get_key_prefers_tarascan_var(self):
+        with mock.patch.dict(os.environ, {"TARASCAN_AI_KEY": "a", "NVIDIA_API_KEY": "b"}, clear=True):
+            self.assertEqual(ai_advisor.get_key(), "a")
+        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "b"}, clear=True):
+            self.assertEqual(ai_advisor.get_key(), "b")
+
+    def test_get_key_none_when_unset(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(ai_advisor.get_key())
+
+    def test_analyze_without_key_raises(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ai_advisor.AIError):
+                ai_advisor.analyze("informe de prueba")
+
+    def test_analyze_parses_response(self):
+        class _FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self):
+                payload = {"choices": [{"message": {"content": "## Resumen\nok"}}]}
+                return json.dumps(payload).encode("utf-8")
+
+        with mock.patch.dict(os.environ, {"TARASCAN_AI_KEY": "x"}, clear=True), \
+                mock.patch.object(ai_advisor.urllib.request, "urlopen", return_value=_FakeResp()):
+            out, model = ai_advisor.analyze("puerto 80 abierto")
+        self.assertIn("Resumen", out)
+        self.assertTrue(model)
+
+    def test_candidate_models_override_first(self):
+        with mock.patch.dict(os.environ, {"TARASCAN_AI_MODEL": "meta/llama-3.2-11b-vision-instruct"}, clear=True):
+            models = ai_advisor._candidate_models()
+        self.assertEqual(models[0], "meta/llama-3.2-11b-vision-instruct")
+        self.assertEqual(len(models), len(set(models)))  # sin duplicados
+
+    def test_analyze_falls_back_on_retriable(self):
+        calls = []
+
+        def _fake_request(model, *a, **k):
+            calls.append(model)
+            if len(calls) == 1:
+                raise ai_advisor.AIError("saturado", retriable=True)
+            return "## Resumen\nok"
+
+        with mock.patch.dict(os.environ, {"TARASCAN_AI_KEY": "x"}, clear=True), \
+                mock.patch.object(ai_advisor, "_request", side_effect=_fake_request):
+            out, model = ai_advisor.analyze("puerto 80 abierto")
+        self.assertIn("Resumen", out)
+        self.assertEqual(len(calls), 2)  # falló el 1º, respondió el 2º
 
 
 if __name__ == "__main__":

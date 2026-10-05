@@ -90,8 +90,46 @@ Opciones:
 - `--deep` — descubrimiento de contenido web recursivo con feroxbuster (más lento que gobuster, va fuera de la cadena por defecto).
 - `--sqli` — lanza sqlmap contra la web detectada. **Intrusivo.**
 - `--brute SERVICIO` — fuerza bruta de credenciales con hydra para ese servicio (`ssh`, `ftp`, `http-get`...). **Intrusivo, puede bloquear cuentas.**
+- `--ai` — al terminar, pasa el informe a un modelo de lenguaje y añade un resumen, lo crítico y comandos sugeridos. Opcional; necesita una clave de API propia (ver [Análisis con IA](#análisis-con-ia-opcional)).
 
 La salida por terminal puede ser muy larga; para guardarla y leerla con calma, `tarascan objetivo -o` deja un `.md` con todo el informe (tablas incluidas).
+
+## Análisis con IA (opcional)
+
+Con `--ai`, al terminar el recon tarascan le pasa el informe a un modelo de lenguaje y añade una sección final con un resumen de verdad, los puntos críticos con su recomendación y comandos concretos para los siguientes pasos. Está apagado por defecto: sin el flag, tarascan no habla con ninguna IA.
+
+### Necesitas tu propia clave de NVIDIA (gratis)
+
+**La clave de API NO viene en el repo y nunca debe subirse a él.** Cada quien usa la suya: tarascan la lee de una variable de entorno, nunca de un fichero del proyecto. Funciona con el endpoint **gratuito de NVIDIA**, que es compatible con la API de OpenAI.
+
+Para conseguir la tuya:
+
+1. Entra en **[https://build.nvidia.com/](https://build.nvidia.com/)** y crea una cuenta (o inicia sesión).
+2. Abre cualquier modelo de texto (por ejemplo [nemotron-3-ultra-550b](https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b)) y pulsa **"Get API Key"** (o "Build with this NIM"). Copia la clave: empieza por `nvapi-`.
+3. Expórtala en tu shell (o, para que quede fija, añádela a tu `~/.zshrc` / `~/.bashrc`):
+
+```
+export TARASCAN_AI_KEY="nvapi-TU-CLAVE-AQUI"
+```
+
+4. Lanza un escaneo con `--ai`:
+
+```
+tarascan 127.0.0.1 --ai
+```
+
+> El free tier de NVIDIA es para prototipar: tiene límite de peticiones y puede cambiar. Para uso serio o con datos sensibles, usa tu propio modelo o un proveedor de pago (ver abajo cómo cambiar endpoint/modelo).
+
+El análisis usa una **cadena de modelos con respaldo**: si el primero está saturado o no disponible (el free tier se llena a ratos), prueba automáticamente el siguiente. De más potente a más seguro: `nemotron-3-ultra-550b` → `nemotron-3-super-120b` → `gpt-oss-20b` → `llama-3.2-11b-vision`. El panel indica qué modelo respondió.
+
+El endpoint y el modelo preferido se pueden cambiar sin tocar el código, por si NVIDIA renombra un modelo o prefieres otro proveedor compatible con OpenAI (OpenRouter, un Ollama local, etc.). Si fijas `TARASCAN_AI_MODEL`, ese se prueba primero y el resto de la cadena queda como respaldo:
+
+```
+export TARASCAN_AI_BASE="https://integrate.api.nvidia.com/v1"   # por defecto
+export TARASCAN_AI_MODEL="nvidia/nemotron-3-ultra-550b-a55b"    # preferido; elige otro en build.nvidia.com
+```
+
+> **Privacidad:** con `--ai`, el informe (IPs, nombres de equipo, servicios y versiones) se envía al endpoint que hayas configurado, que es un tercero. Úsalo solo con datos que puedas compartir; para redes o clientes reales, mejor no.
 
 ## Laboratorio de pruebas
 

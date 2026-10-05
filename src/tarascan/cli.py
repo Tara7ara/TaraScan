@@ -17,6 +17,7 @@ from rich.table import Table
 from rich.text import Text
 
 from tarascan.scanners import (
+    ai_advisor,
     dns,
     enum4linux,
     feroxbuster,
@@ -270,7 +271,58 @@ def _table(*columns: str) -> Table:
     return t
 
 
-def _run_net_map(net_arg: str, output_path: str | None) -> None:
+def _run_ai(target: str | None = None, kind: str = "target") -> None:
+    """Pasa el informe ya generado (_MD) a un modelo y pinta su análisis.
+
+    Opt-in con --ai. Avisa de que los datos salen a un tercero antes de enviar,
+    porque el informe puede llevar IPs, nombres de equipo y versiones.
+    """
+    from rich.markdown import Markdown
+
+    if not ai_advisor.get_key():
+        _panel(
+            "Análisis con IA",
+            "resumen y recomendaciones generados por un modelo",
+            [Text("falta la clave: define TARASCAN_AI_KEY con una clave gratuita de "
+                  "build.nvidia.com. Mira el README.", style="bold red")],
+            border="red",
+        )
+        return
+
+    console.print(
+        f"[{GREY}]El informe (IPs, servicios, versiones) se envía al endpoint de IA "
+        f"configurado. Úsalo solo con datos que puedas compartir.[/]"
+    )
+    report = "\n".join(_MD)
+    try:
+        with console.status(f"[{ORANGE}]pensando[/][{GREY}]… (consultando al modelo)[/]", spinner="dots"):
+            answer, model_used = ai_advisor.analyze(report, target, kind)
+    except ai_advisor.AIError as exc:
+        _panel(
+            "Análisis con IA",
+            "resumen y recomendaciones generados por un modelo",
+            [Text(str(exc), style="bold red")],
+            border="red",
+        )
+        return
+
+    console.print(
+        Panel(
+            Markdown(answer),
+            title=f"[bold {ORANGE}]Análisis con IA[/] [{GREY}]({escape(model_used)})[/]",
+            title_align="left",
+            border_style=PURPLE,
+            padding=(0, 1),
+        )
+    )
+    # En el .md va el Markdown tal cual (es Markdown ya), no como bloque de código.
+    _MD.append(f"## Análisis con IA ({model_used})")
+    _MD.append("")
+    _MD.append(answer)
+    _MD.append("")
+
+
+def _run_net_map(net_arg: str, output_path: str | None, use_ai: bool = False) -> None:
     """Modo de descubrimiento de red: mapea hosts activos, MACs y fabricantes."""
     local_info = net_map.detect_local_network()
 
@@ -330,6 +382,9 @@ def _run_net_map(net_arg: str, output_path: str | None) -> None:
     if local_info and local_info.get("gateway"):
         summary_body.append(Text(f"• gateway: {local_info['gateway']}"))
     _panel("Resumen de red", "lo esencial del segmento", summary_body, border=ORANGE)
+
+    if use_ai:
+        _run_ai(cidr, kind="net")
 
     if output_path is not None:
         path = _resolve_output_path(output_path, f"net-{cidr}")
@@ -397,6 +452,12 @@ def main() -> None:
         help="descubrimiento de contenido recursivo con feroxbuster (más lento que gobuster)",
     )
     parser.add_argument(
+        "--ai",
+        action="store_true",
+        help="al terminar, pide a un modelo (NVIDIA gratis) un resumen, lo crítico "
+             "y comandos sugeridos; requiere TARASCAN_AI_KEY (ver README)",
+    )
+    parser.add_argument(
         "-o", "--output",
         nargs="?",
         const="",
@@ -408,13 +469,13 @@ def main() -> None:
 
     # Modo mapa de red (--net, --map o CIDR posicional)
     if args.net is not None:
-        _run_net_map(args.net, args.output)
+        _run_net_map(args.net, args.output, args.ai)
         return
     if args.target and "/" in args.target:
         try:
             net_obj = ipaddress.ip_network(args.target.strip(), strict=False)
             if net_obj.prefixlen < 32:
-                _run_net_map(str(net_obj), args.output)
+                _run_net_map(str(net_obj), args.output, args.ai)
                 return
         except ValueError:
             pass
@@ -1026,6 +1087,10 @@ def main() -> None:
     _panel("Resumen", "lo esencial de un vistazo (en rojo, lo que conviene mirar primero)", summary_body, border=ORANGE)
 
     executor.shutdown(wait=True)
+
+    # --- Análisis con IA (opt-in con --ai) ---
+    if args.ai:
+        _run_ai(target)
 
     # --- Exportar a Markdown si se pidió con -o/--output ---
     if args.output is not None:
