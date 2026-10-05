@@ -12,6 +12,24 @@ En desarrollo, pero ya cubre de sobra el recon de Fase 1 (red, web y SMB). Adem�
 
 Las herramientas se lanzan **en paralelo** y la salida va apareciendo por bloques según terminan, siempre en el mismo orden. Mientras una herramienta lenta (nmap NSE, nuclei) sigue trabajando, se muestra un spinner para que se vea que no está colgado.
 
+## Capturas
+
+Recon de un objetivo: puertos, versiones y scripts NSE.
+
+![Recon de puertos y NSE](docs/img/recon-puertos.png)
+
+Análisis con IA (`--ai`) de un objetivo: resumen, vectores de ataque y comandos listos para pegar.
+
+![Análisis con IA de un objetivo](docs/img/ia-objetivo.png)
+
+Mapa de red local (`--net`): dispositivos activos con SO, puertos, MAC y fabricante.
+
+![Mapa de red](docs/img/mapa-red.png)
+
+Análisis con IA del mapa de red: objetivos prioritarios por dónde empezar.
+
+![Análisis con IA de la red](docs/img/ia-red.png)
+
 ## Requisitos
 
 - Python 3.11+ (la dependencia `dnspython` se instala sola).
