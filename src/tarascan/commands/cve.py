@@ -38,8 +38,7 @@ def _render(term: str, findings: list[dict]) -> None:
         t.add_row(ui.Text(f["edb"], style=ui.ORANGE), f["type"], f["title"])
     extra = [ui.Text(f"... y {len(findings) - 50} más", style=ui.GREY)] if len(findings) > 50 else []
     ui.panel(f"Exploits · {term}", f"{len(findings)} resultado(s) en exploit-db",
-             [t, *extra, ui.note("mira: searchsploit -x <EDB-ID>  ·  copia: searchsploit -m <EDB-ID>")],
-             border=ui.ORANGE)
+             [t, *extra, ui.note("mira: searchsploit -x <EDB-ID>  ·  copia: searchsploit -m <EDB-ID>")])
 
 
 def cmd_cve(argv: list[str]) -> int:

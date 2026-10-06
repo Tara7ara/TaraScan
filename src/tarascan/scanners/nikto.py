@@ -11,6 +11,8 @@ _SKIP_PREFIXES = (
     "Server:",
     "End Time",
     "requests:",
+    "[FAIL]",
+    "ERROR:",
 )
 
 _MISSING_HEADER_MARK = "Suggested security header missing: "
@@ -21,18 +23,21 @@ _NOISE_MARKS = ("No CGI Directories found",)
 # vez de repetir la misma idea dos veces con IDs de plugin distintos.
 _EXTRA_HEADER_ISSUES = (
     ("X-Frame-Options header is deprecated", "x-frame-options"),
+    ("The anti-clickjacking X-Frame-Options header is not set", "x-frame-options"),
     ("The X-Content-Type-Options header is not set", "x-content-type-options"),
 )
 
 
 def scan(url: str) -> list[str]:
     result = subprocess.run(
-        ["nikto", "-h", url, "-nointeractive"],
+        ["nikto", "-h", url, "-nointeractive", "-maxtime", "3m"],
         capture_output=True,
         text=True,
         stdin=subprocess.DEVNULL,
-        check=True,
+        timeout=200,
     )
+    if result.returncode != 0 and not result.stdout.strip():
+        result.check_returncode()
 
     findings = []
     missing_headers = []
@@ -47,14 +52,14 @@ def scan(url: str) -> list[str]:
             continue
 
         if _MISSING_HEADER_MARK in line:
-            header = line.split(_MISSING_HEADER_MARK, 1)[1].split(".", 1)[0]
-            if header not in missing_headers:
+            header = line.split(_MISSING_HEADER_MARK, 1)[1].split(".", 1)[0].strip()
+            if not any(h.lower() == header.lower() for h in missing_headers):
                 missing_headers.append(header)
             continue
 
-        extra = next((header for mark, header in _EXTRA_HEADER_ISSUES if mark in line), None)
+        extra = next((header for mark, header in _EXTRA_HEADER_ISSUES if mark.lower() in line.lower()), None)
         if extra:
-            if extra not in missing_headers:
+            if not any(h.lower() == extra.lower() for h in missing_headers):
                 missing_headers.append(extra)
             continue
 

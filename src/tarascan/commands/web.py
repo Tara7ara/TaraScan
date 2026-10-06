@@ -7,7 +7,38 @@ import ssl
 import urllib.error
 import urllib.request
 
-from tarascan import ui
+from tarascan import store, ui
+
+
+def _alert_lines(*bodies) -> list[str]:
+    """Saca las líneas de interpretación (las que empiezan por '→') de los cuerpos
+    de los paneles, para guardarlas como hallazgos en el store."""
+    out: list[str] = []
+    for body in bodies:
+        for item in body or []:
+            for ln in getattr(item, "plain", str(item)).splitlines():
+                ln = ln.strip()
+                if ln.startswith("→"):
+                    out.append(ln[1:].strip())
+    return out
+
+
+def _persist_web(base: str, apis: list, cors: list, gql: list | None) -> None:
+    """Deja constancia del escaneo web en el store para que `report` lo recoja."""
+    from urllib.parse import urlparse
+
+    host = urlparse(base).hostname or base
+    findings = []
+    for ln in _alert_lines(apis, cors):
+        marca = "[!] " if ("credenciales" in ln.lower() or "introspección" in ln.lower()) else ""
+        findings.append(f"{marca}web ({base}): {ln}")
+    if gql:
+        findings.append(f"[!] web ({base}): introspección GraphQL abierta, el esquema se vuelca entero")
+    resumen = f"{base}: " + (f"{len(findings)} hallazgo(s)" if findings else "sin hallazgos destacables")
+    try:
+        store.record_scan(host, findings=findings or None, scans={"web": {"resumen": resumen}})
+    except Exception:  # noqa: BLE001 - persistir no debe tumbar el comando
+        pass
 
 _UA = "Mozilla/5.0 (tarascan web)"
 _API_PATHS = [
@@ -98,7 +129,11 @@ def _probe_apis(base: str) -> list:
             continue
         found = True
         tag = " [API real]" if es_api else ""
-        body.append(ui.Text(f"{status}  {path}  ({ctype or 'sin tipo'}, {length}B){tag}", style=ui.ORANGE))
+        linea = ui.status(status)
+        linea.append(f"  {path}  ({ctype or 'sin tipo'}, {length}B)")
+        if tag:
+            linea.append(tag, style=ui.ORANGE)
+        body.append(linea)
 
     if not found:
         msg = "sin rutas de API/docs que destaquen sobre la respuesta base" if catch_all else "sin rutas de API/docs habituales accesibles"
@@ -172,13 +207,15 @@ def cmd_web(argv: list[str]) -> int:
     base = args.url.strip()
     if not base.startswith(("http://", "https://")):
         # Sin esquema: deduce https si el puerto es de TLS (443/8443), si no http.
-        port = base.rsplit(":", 1)[-1] if ":" in base.rsplit("/", 1)[0] else ""
+        host_part = base.split("/", 1)[0]
+        port = host_part.rsplit(":", 1)[-1] if ":" in host_part else ""
         scheme = "https" if port in ("443", "8443") else "http"
         base = f"{scheme}://{base}"
     ui.rule(f"web · [{ui.PURPLE}]{ui.escape(base)}[/]")
 
     with ui.console.status(f"[{ui.ORANGE}]buscando APIs y docs[/][{ui.GREY}]…[/]", spinner="dots"):
-        ui.panel("APIs y documentación", "rutas de swagger/openapi/graphql accesibles", _probe_apis(base), border=ui.ORANGE)
+        apis = _probe_apis(base)
+    ui.panel("APIs y documentación", "busca documentación de API expuesta (Swagger/OpenAPI/GraphQL)", apis)
 
     with ui.console.status(f"[{ui.ORANGE}]probando introspección GraphQL[/][{ui.GREY}]…[/]", spinner="dots"):
         gql = _graphql_introspection(base)
@@ -186,5 +223,8 @@ def cmd_web(argv: list[str]) -> int:
         ui.panel("GraphQL", "volcado del esquema por introspección", gql, border="red")
 
     with ui.console.status(f"[{ui.ORANGE}]auditando cabeceras y CORS[/][{ui.GREY}]…[/]", spinner="dots"):
-        ui.panel("Cabeceras y CORS", "cabeceras defensivas que faltan y política CORS", _headers_and_cors(base), border=ui.ORANGE)
+        cors = _headers_and_cors(base)
+    ui.panel("Cabeceras y CORS", "comprueba cabeceras defensivas que faltan y la política CORS", cors)
+
+    _persist_web(base, apis, cors, gql)
     return 0

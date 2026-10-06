@@ -50,7 +50,7 @@ def _identify_hash(h: str) -> list[tuple[str, str, str]]:
         (r"^\$apr1\$", "Apache MD5 (htpasswd)", "1600", "md5crypt-a"),
         (r"^\$argon2", "Argon2", "", "argon2"),
         (r"^\{SSHA\}", "SSHA (LDAP)", "111", "ssha"),
-        (r"^\$P\$|\$H\$", "phpass (WordPress/phpBB)", "400", "phpass"),
+        (r"^\$[PH]\$", "phpass (WordPress/phpBB)", "400", "phpass"),
         # Kerberos de Active Directory: oro puro en eJPT/CPTS.
         (r"^\$krb5tgs\$", "Kerberos 5 TGS-REP (Kerberoasting)", "13100", "krb5tgs"),
         (r"^\$krb5asrep\$", "Kerberos 5 AS-REP (ASREProast)", "18200", "krb5asrep"),
@@ -106,7 +106,7 @@ def _hash_detallado(h: str) -> None:
         hc_txt = f"-m {hc}" if hc else "-"
         john_txt = f"--format={john}" if john else "-"
         t.add_row(label, ui.Text(hc_txt, style=ui.ORANGE), ui.Text(john_txt, style=ui.ORANGE))
-    ui.panel("Tipos candidatos", f"longitud {len(h)}; ordenados por probabilidad", [t], border=ui.ORANGE)
+    ui.panel("Tipos candidatos", f"longitud {len(h)}; ordenados por probabilidad", [t])
 
     best = cands[0]
     if best[1]:
@@ -127,7 +127,7 @@ def _hash_tabla(hashes: list[str]) -> None:
         shown = h if len(h) <= 24 else h[:23] + "…"
         t.add_row(shown, label, ui.Text(f"-m {hc}" if hc else "-", style=ui.ORANGE),
                   ui.Text(f"--format={john}" if john else "-", style=ui.ORANGE))
-    ui.panel("Hashes", "el candidato más probable de cada uno", [t], border=ui.ORANGE)
+    ui.panel("Hashes", "el candidato más probable de cada uno", [t])
 
 
 def cmd_hash(argv: list[str]) -> int:
@@ -156,14 +156,20 @@ def cmd_hash(argv: list[str]) -> int:
 # --------------------------------------------------------------------------- #
 # decode
 # --------------------------------------------------------------------------- #
+def _is_text(s: str) -> bool:
+    """Verifica si la cadena parece texto legible (imprimible o espacios/saltos de línea)."""
+    return bool(s) and all(c.isprintable() or c in "\n\r\t" for c in s)
+
+
 def _try_base64(s: str) -> str | None:
     s2 = s.strip()
     if len(s2) < 4 or not re.fullmatch(r"[A-Za-z0-9+/=_-]+", s2):
         return None
     try:
-        raw = base64.b64decode(s2 + "=" * (-len(s2) % 4), validate=False)
+        b64_str = s2.replace("-", "+").replace("_", "/")
+        raw = base64.b64decode(b64_str + "=" * (-len(b64_str) % 4), validate=False)
         txt = raw.decode("utf-8")
-        if txt and txt.isprintable():
+        if _is_text(txt):
             return txt
     except (binascii.Error, ValueError, UnicodeDecodeError):
         pass
@@ -175,7 +181,7 @@ def _try_hex(s: str) -> str | None:
     if len(s2) >= 4 and len(s2) % 2 == 0 and re.fullmatch(r"[0-9a-fA-F]+", s2):
         try:
             txt = bytes.fromhex(s2).decode("utf-8")
-            if txt.isprintable():
+            if _is_text(txt):
                 return txt
         except (ValueError, UnicodeDecodeError):
             pass
@@ -201,7 +207,7 @@ def _try_binary(s: str) -> str | None:
     if len(bits) >= 8 and len(bits) % 8 == 0 and re.fullmatch(r"[01]+", bits):
         try:
             txt = bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8)).decode("utf-8")
-            if txt.isprintable():
+            if _is_text(txt):
                 return txt
         except (ValueError, UnicodeDecodeError):
             pass
@@ -298,7 +304,7 @@ def cmd_decode(argv: list[str]) -> int:
         body.append(ui.Text(f"{i}. {name}", style=ui.PURPLE))
         body.append(ui.Text(f"   {out}"))
     body.append(ui.note(f"resultado final: {layers[-1][1]}"))
-    ui.panel("Decode", f"{len(layers)} capa(s) resuelta(s)", body, border=ui.ORANGE)
+    ui.panel("Decode", f"{len(layers)} capa(s) resuelta(s)", body)
     return 0
 
 
@@ -352,7 +358,10 @@ def cmd_jwt(argv: list[str]) -> int:
     now = datetime.datetime.now(datetime.timezone.utc)
     for claim in ("exp", "iat", "nbf"):
         if claim in payload and isinstance(payload[claim], (int, float)):
-            dt = datetime.datetime.fromtimestamp(payload[claim], datetime.timezone.utc)
+            try:
+                dt = datetime.datetime.fromtimestamp(payload[claim], datetime.timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                continue
             label = {"exp": "expira", "iat": "emitido", "nbf": "válido desde"}[claim]
             if claim == "exp":
                 estado = "CADUCADO" if dt < now else "vigente"
@@ -366,5 +375,5 @@ def cmd_jwt(argv: list[str]) -> int:
         alerts.append(ui.warn(f"claims con pinta sensible en claro: {', '.join(sensibles)}"))
 
     if alerts:
-        ui.panel("Análisis", "lo que conviene mirar del token", alerts, border=ui.ORANGE)
+        ui.panel("Análisis", "lo que conviene mirar del token", alerts)
     return 0

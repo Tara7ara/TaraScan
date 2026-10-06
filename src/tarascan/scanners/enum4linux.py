@@ -26,8 +26,10 @@ def scan(target: str) -> dict[str, list[str]]:
         ["enum4linux", "-o", "-U", "-S", target],
         capture_output=True,
         text=True,
-        check=True,
+        timeout=180,
     )
+    if result.returncode != 0 and not result.stdout.strip():
+        result.check_returncode()
 
     sections: dict[str, list[str]] = {}
     current = None  # None = fuera de cualquier sección reconocida, se descarta

@@ -5,17 +5,27 @@ import subprocess
 
 
 def scan(url: str) -> dict:
+    empty = {"detected": False, "firewall": "", "manufacturer": ""}
     result = subprocess.run(
         ["wafw00f", "-a", "-f", "json", "-o", "-", url],
         capture_output=True,
         text=True,
-        check=True,
+        timeout=60,
     )
 
-    if not result.stdout.strip():
-        return {"detected": False, "firewall": ""}
+    raw = result.stdout.strip()
+    if not raw:
+        return empty
 
-    data = json.loads(result.stdout)
+    start = raw.find("[")
+    end = raw.rfind("]")
+    if start == -1 or end <= start:
+        return empty
+
+    try:
+        data = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError:
+        return empty
     entry = data[0] if isinstance(data, list) and data else {}
     detected = bool(entry.get("detected"))
     firewall = entry.get("firewall", "") if detected else ""

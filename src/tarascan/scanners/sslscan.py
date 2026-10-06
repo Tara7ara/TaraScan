@@ -8,17 +8,28 @@ _INSECURE_PROTOCOLS = {("ssl", "2"), ("ssl", "3"), ("tls", "1.0"), ("tls", "1.1"
 
 
 def scan(target: str, port: str = "443") -> dict:
-    result = subprocess.run(
-        ["sslscan", "--no-colour", f"--xml=-", f"{target}:{port}"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    empty = {"protocols": [], "insecure_protocols": [], "weak_ciphers": [], "cert": {}}
+    try:
+        result = subprocess.run(
+            ["sslscan", "--no-colour", "--xml=-", f"{target}:{port}"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return empty
 
-    root = ET.fromstring(result.stdout)
+    if not result.stdout.strip():
+        return empty
+
+    try:
+        root = ET.fromstring(result.stdout)
+    except ET.ParseError:
+        return empty
+
     test = root.find("ssltest")
     if test is None:
-        return {"protocols": [], "insecure_protocols": [], "weak_ciphers": [], "cert": {}}
+        return empty
 
     protocols, insecure = [], []
     for proto in test.findall("protocol"):
@@ -37,7 +48,9 @@ def scan(target: str, port: str = "443") -> dict:
             weak_ciphers.append(f"{cipher.get('cipher', '')} ({strength})")
 
     cert = {}
-    cert_el = test.find("certificate") or test.find("certificates/certificate")
+    cert_el = test.find("certificate")
+    if cert_el is None:
+        cert_el = test.find("certificates/certificate")
     if cert_el is not None:
         subject = cert_el.findtext("subject")
         expired = cert_el.findtext("expired")

@@ -10,12 +10,21 @@ def scan(term: str) -> list[dict]:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     )
 
-    if not result.stdout.strip():
+    raw = result.stdout.strip()
+    if not raw:
         return []
 
-    data = json.loads(result.stdout)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end <= start:
+        return []
+    try:
+        data = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError:
+        return []
     findings = []
     for exploit in data.get("RESULTS_EXPLOIT", []):
         findings.append(

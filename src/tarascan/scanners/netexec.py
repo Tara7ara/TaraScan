@@ -8,11 +8,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _PREFIX = re.compile(r"^\[[*+\-]\]\s*")
 
 
-def scan(target: str) -> dict:
+def scan(target: str, port: str = "445") -> dict:
     # -u '' -p '' fuerza el intento de sesión nula (anónima); --shares lista
     # los recursos si el servidor lo permite sin autenticación.
+    cmd = ["nxc", "smb", target, "-u", "", "-p", "", "--shares"]
+    if port and str(port) != "445":
+        cmd += ["--port", str(port)]
     result = subprocess.run(
-        ["nxc", "smb", target, "-u", "", "-p", "", "--shares"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=120,

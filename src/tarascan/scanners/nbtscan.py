@@ -1,15 +1,24 @@
 """Wrapper sobre nbtscan: nombres NetBIOS (137/udp) del objetivo."""
 
+import socket
 import subprocess
 
 
 def scan(target: str) -> list[dict]:
+    # nbtscan peta con hostnames (sale con error 2), así que resolvemos a IP primero.
+    try:
+        ip = socket.gethostbyname(target)
+    except OSError:
+        ip = target
+
     result = subprocess.run(
-        ["nbtscan", target],
+        ["nbtscan", ip],
         capture_output=True,
         text=True,
-        check=True,
+        timeout=30,
     )
+    if result.returncode != 0 and not result.stdout.strip():
+        return []
 
     hosts = []
     seen_separator = False

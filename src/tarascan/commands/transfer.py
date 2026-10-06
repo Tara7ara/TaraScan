@@ -78,7 +78,7 @@ def cmd_shell(argv: list[str]) -> int:
     t = ui.table("Tipo", "One-liner")
     for name, cmd in shells:
         t.add_row(ui.Text(name, style=ui.PURPLE), cmd)
-    ui.panel("Reverse shells", "lanza uno en la víctima; tu IP ya va rellenada", [t], border=ui.ORANGE)
+    ui.panel("Reverse shells", "lanza uno en la víctima; tu IP ya va rellenada", [t])
 
     bash_payload = shells[0][1]
     if args.b64:
@@ -127,7 +127,7 @@ def cmd_serve(argv: list[str]) -> int:
     t = ui.table("Víctima", "Comando de descarga")
     for name, cmd in cmds:
         t.add_row(ui.Text(name, style=ui.PURPLE), cmd)
-    ui.panel("Descarga en la víctima", f"sirviendo {cwd}", [t], border=ui.ORANGE)
+    ui.panel("Descarga en la víctima", f"sirviendo {cwd}", [t])
 
     if args.no_serve:
         ui.console.print(f"[{ui.GREY}]arranca el servidor tú con:[/] [{ui.ORANGE}]python3 -m http.server {args.port}[/]")

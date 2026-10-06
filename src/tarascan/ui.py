@@ -28,6 +28,16 @@ def warn(text: str) -> Text:
     return Text(f"→ {text}", style="bold red")
 
 
+def status(code) -> Text:
+    """Pinta un código HTTP según su familia: verde <300, amarillo <400, rojo >=400."""
+    try:
+        c = int(code)
+    except (ValueError, TypeError):
+        return Text(str(code), style=GREY)
+    color = "green" if c < 300 else "yellow" if c < 400 else "red"
+    return Text(str(code), style=color)
+
+
 def table(*columns: str) -> Table:
     t = Table(show_header=True, header_style=f"bold {ORANGE}")
     for c in columns:
@@ -67,5 +77,5 @@ def error(msg: str) -> None:
 
 __all__ = [
     "console", "ORANGE", "PURPLE", "GREY", "escape",
-    "dim", "note", "warn", "table", "panel", "rule", "error",
+    "dim", "note", "warn", "status", "table", "panel", "rule", "error",
 ]

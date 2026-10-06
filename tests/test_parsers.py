@@ -12,7 +12,23 @@ import unittest
 from unittest import mock
 
 from tarascan import cli
-from tarascan.scanners import ai_advisor, gobuster, net_map, netexec, nmap, searchsploit, whatweb
+from tarascan.scanners import (
+    ai_advisor,
+    enum4linux,
+    gobuster,
+    nbtscan,
+    net_map,
+    netexec,
+    nikto,
+    nmap,
+    onesixtyone,
+    searchsploit,
+    smbclient,
+    sslscan,
+    wafw00f,
+    whatweb,
+    wpscan,
+)
 
 
 def _fake_run(stdout="", stderr="", returncode=0):
@@ -29,10 +45,11 @@ class HelperTests(unittest.TestCase):
         self.assertFalse(cli._is_ip("example.com"))
 
     def test_status_markup_colors(self):
-        self.assertIn("green", cli._status_markup("200"))
-        self.assertIn("yellow", cli._status_markup("301"))
-        self.assertIn("red", cli._status_markup("403"))
-        self.assertEqual(cli._status_markup("abc"), "abc")  # no numérico
+        # _status_markup devuelve un Text de rich coloreado por familia del código.
+        self.assertEqual(cli._status_markup("200").style, "green")
+        self.assertEqual(cli._status_markup("301").style, "yellow")
+        self.assertEqual(cli._status_markup("403").style, "red")
+        self.assertEqual(cli._status_markup("abc").plain, "abc")  # no numérico
 
     def test_search_term_trims_version(self):
         # "6.6.1p1" -> producto + versión numérica limpia
@@ -82,6 +99,22 @@ class SearchsploitTests(unittest.TestCase):
         with mock.patch.object(subprocess, "run", _fake_run(stdout="")):
             self.assertEqual(searchsploit.scan("nada"), [])
 
+    def test_parses_json_with_banner_noise(self):
+        out = (
+            "[!] Notice: Exploit-DB database updated.\n"
+            '{"RESULTS_EXPLOIT": [{"Title": "Apache 2.4 - RCE", '
+            '"EDB-ID": "50000", "Type": "remote"}]}\n'
+            "[+] Scan finished.\n"
+        )
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = searchsploit.scan("Apache 2.4")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["edb"], "50000")
+
+    def test_invalid_json_returns_empty(self):
+        with mock.patch.object(subprocess, "run", _fake_run(stdout="Error: not json at all {bad")):
+            self.assertEqual(searchsploit.scan("algo"), [])
+
 
 class GobusterTests(unittest.TestCase):
     def test_parses_paths_and_status(self):
@@ -100,6 +133,23 @@ class WhatwebTests(unittest.TestCase):
         self.assertIn("WordPress", info["plugins"])
         self.assertEqual(info["plugins"]["WordPress"], "7.1.1")
         self.assertEqual(info["plugins"]["PHP"], "detectado")
+
+    def test_parses_plugins_string_and_int(self):
+        out = json.dumps([{
+            "http_status": 200,
+            "plugins": {
+                "Apache": {"version": "2.4.7"},
+                "HTTPServer": {"string": "Ubuntu Linux"},
+                "X-Powered-By": {"module": 123},
+                "EmptyPlugin": {"version": []},
+            }
+        }])
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            info = whatweb.scan("http://x")
+        self.assertEqual(info["plugins"]["Apache"], "2.4.7")
+        self.assertEqual(info["plugins"]["HTTPServer"], "Ubuntu Linux")
+        self.assertEqual(info["plugins"]["X-Powered-By"], "123")
+        self.assertEqual(info["plugins"]["EmptyPlugin"], "detectado")
 
 
 class NetexecTests(unittest.TestCase):
@@ -126,6 +176,56 @@ class NetexecTests(unittest.TestCase):
         with mock.patch.object(subprocess, "run", _fake_run(stderr="ImportError: tsts", returncode=1)):
             with self.assertRaises(subprocess.CalledProcessError):
                 netexec.scan("1.2.3.4")
+
+    def test_custom_port(self):
+        captured_cmd = []
+
+        def _fake_run_cmd(*args, **kwargs):
+            captured_cmd.append(args[0] if args else kwargs.get("args"))
+            return types.SimpleNamespace(stdout="SMB 1.2.3.4 8445 ...", stderr="", returncode=0)
+
+        with mock.patch.object(subprocess, "run", side_effect=_fake_run_cmd):
+            netexec.scan("1.2.3.4", port="8445")
+        self.assertIn("--port", captured_cmd[0])
+        self.assertIn("8445", captured_cmd[0])
+
+
+class SmbclientTests(unittest.TestCase):
+    def test_access_denied_returns_empty(self):
+        with mock.patch.object(subprocess, "run", _fake_run(stderr="NT_STATUS_ACCESS_DENIED", returncode=1)):
+            res = smbclient.scan("1.2.3.4")
+        self.assertEqual(res, [])
+
+    def test_parses_shares(self):
+        out = "Disk|ADMIN$|Remote Admin\nDisk|C$|Default share\nIPC|IPC$|Remote IPC\n"
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = smbclient.scan("1.2.3.4")
+        self.assertEqual(len(res), 3)
+        self.assertEqual(res[0]["name"], "ADMIN$")
+        self.assertEqual(res[0]["type"], "Disk")
+        self.assertEqual(res[0]["comment"], "Remote Admin")
+
+
+class OnesixtyoneTests(unittest.TestCase):
+    def test_parses_community(self):
+        out = "Scanning 1 hosts, 2 communities\n192.168.1.1 [public] Linux Router 3.2.0\n"
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = onesixtyone.scan("192.168.1.1")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["community"], "public")
+        self.assertIn("Linux Router", res[0]["info"])
+
+    def test_fallback_cmd_without_community_file(self):
+        captured = []
+
+        def _fake_run_cmd(*args, **kwargs):
+            captured.append(args[0] if args else kwargs.get("args"))
+            return types.SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        with mock.patch("os.path.exists", return_value=False), \
+             mock.patch.object(subprocess, "run", side_effect=_fake_run_cmd):
+            onesixtyone.scan("192.168.1.1")
+        self.assertEqual(captured[0], ["onesixtyone", "192.168.1.1"])
 
 
 class TargetResolutionTests(unittest.TestCase):
@@ -247,6 +347,106 @@ class AIAdvisorTests(unittest.TestCase):
             out, model = ai_advisor.analyze("puerto 80 abierto")
         self.assertIn("Resumen", out)
         self.assertEqual(len(calls), 2)  # falló el 1º, respondió el 2º
+
+
+class NiktoTests(unittest.TestCase):
+    def test_parses_findings_and_missing_headers(self):
+        out = (
+            "- Nikto v2.6.0\n"
+            "+ Target IP: 1.2.3.4\n"
+            "+ Suggested security header missing: X-Frame-Options.\n"
+            "+ The anti-clickjacking X-Frame-Options header is not set.\n"
+            "+ Allowed HTTP Methods: GET, HEAD, POST\n"
+            "+ 1 host(s) tested\n"
+        )
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = nikto.scan("http://1.2.3.4")
+        self.assertEqual(len(res), 2)
+        self.assertIn("cabeceras de seguridad", res[0])
+        self.assertIn("Allowed HTTP Methods", res[1])
+
+    def test_ignores_fail_and_error(self):
+        out = "+ [FAIL] Unable to connect to 1.2.3.4:80.\n"
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = nikto.scan("http://1.2.3.4")
+        self.assertEqual(res, [])
+
+
+class WpscanTests(unittest.TestCase):
+    def test_parses_json_even_with_warning_noise(self):
+        out = (
+            "WARNING: Nokogiri was built against libxml...\n"
+            '{"version": {"number": "6.2"}, "plugins": {"contact-form-7": {}}}\n'
+        )
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out, returncode=4)):
+            res = wpscan.scan("http://wp.local")
+        self.assertEqual(len(res), 2)
+        self.assertEqual(res[0]["detalle"], "6.2")
+        self.assertEqual(res[1]["detalle"], "contact-form-7")
+
+
+class Wafw00fTests(unittest.TestCase):
+    def test_detects_waf(self):
+        out = '[{"detected": true, "firewall": "Cloudflare", "manufacturer": "Cloudflare Inc."}]'
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = wafw00f.scan("http://site.com")
+        self.assertTrue(res["detected"])
+        self.assertEqual(res["firewall"], "Cloudflare")
+        self.assertEqual(res["manufacturer"], "Cloudflare Inc.")
+
+    def test_no_waf(self):
+        with mock.patch.object(subprocess, "run", _fake_run(stdout="[]")):
+            res = wafw00f.scan("http://site.com")
+        self.assertFalse(res["detected"])
+
+
+class NbtscanTests(unittest.TestCase):
+    def test_parses_hosts(self):
+        out = (
+            "Doing NBT name scan for addresses from 192.168.1.10\n"
+            "IP address       NetBIOS Name     Server    User             MAC address      \n"
+            "------------------------------------------------------------------------------\n"
+            "192.168.1.10     PC-ADMIN         <server>  ADMIN            00:11:22:33:44:55\n"
+        )
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = nbtscan.scan("192.168.1.10")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["ip"], "192.168.1.10")
+        self.assertEqual(res[0]["name"], "PC-ADMIN")
+        self.assertEqual(res[0]["mac"], "00:11:22:33:44:55")
+
+
+class SslscanTests(unittest.TestCase):
+    def test_parses_protocols_and_weak_ciphers(self):
+        out = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<document><ssltest>'
+            '<protocol type="tls" version="1.0" enabled="1" />'
+            '<protocol type="tls" version="1.3" enabled="1" />'
+            '<cipher cipher="DES-CBC3-SHA" strength="weak" />'
+            '<certificate><subject>CN=example.com</subject><signature-algorithm>sha256WithRSAEncryption</signature-algorithm></certificate>'
+            '</ssltest></document>'
+        )
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = sslscan.scan("1.2.3.4", port="443")
+        self.assertIn("TLSv1.0", res["insecure_protocols"])
+        self.assertIn("TLSv1.3", res["protocols"])
+        self.assertEqual(len(res["weak_ciphers"]), 1)
+        self.assertEqual(res["cert"]["subject"], "CN=example.com")
+
+
+class Enum4linuxTests(unittest.TestCase):
+    def test_parses_sections(self):
+        out = (
+            "====================================( Getting domain SID )====================================\n"
+            "Domain SID: S-1-5-21-12345\n"
+            "====================================( OS information )====================================\n"
+            "OS: Windows 10\n"
+        )
+        with mock.patch.object(subprocess, "run", _fake_run(stdout=out)):
+            res = enum4linux.scan("1.2.3.4")
+        self.assertIn("Dominio", res)
+        self.assertIn("Sistema operativo", res)
 
 
 if __name__ == "__main__":

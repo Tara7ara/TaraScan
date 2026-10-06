@@ -3,8 +3,9 @@
 import argparse
 
 _FLAGS = [
-    "--net", "--map", "--full", "--fresh", "--only", "--skip",
-    "--sqli", "--brute", "--deep", "--ai", "--guided", "--auto",
+    "-n", "--net", "--map", "-f", "--full", "-r", "--fresh",
+    "-y", "--only", "-k", "--skip", "-s", "--sqli", "-b", "--brute",
+    "-d", "--deep", "-i", "--ai", "-g", "--guided", "-a", "--auto",
     "-o", "--output",
 ]
 

@@ -8,7 +8,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from tarascan import ui
+from tarascan import store, ui
+
+
+def _alert_lines(*bodies) -> list[str]:
+    out: list[str] = []
+    for body in bodies:
+        for item in body or []:
+            for ln in getattr(item, "plain", str(item)).splitlines():
+                ln = ln.strip()
+                if ln.startswith("→"):
+                    out.append(ln[1:].strip())
+    return out
 
 _UA = "Mozilla/5.0 (tarascan osint)"
 _SEC_HEADERS = {
@@ -27,13 +38,17 @@ def _crtsh(domain: str) -> list[str]:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, ValueError, TimeoutError):
+    except (urllib.error.URLError, ValueError, TimeoutError, OSError):
+        return []
+    if not isinstance(data, list):
         return []
     subs: set[str] = set()
     for row in data:
+        if not isinstance(row, dict):
+            continue
         for name in str(row.get("name_value", "")).splitlines():
             name = name.strip().lstrip("*.").lower()
-            if name.endswith(domain):
+            if name == domain or name.endswith("." + domain):
                 subs.add(name)
     return sorted(subs)
 
@@ -153,7 +168,7 @@ def _headers(domain: str) -> list:
             if "server" in hdrs:
                 body.append(ui.dim(f"Server: {hdrs['server']}"))
             return body
-        except (urllib.error.URLError, TimeoutError, ValueError):
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError):
             continue
     body.append(ui.Text("no respondió por HTTP/HTTPS", style=ui.GREY))
     return body
@@ -188,14 +203,24 @@ def cmd_osint(argv: list[str]) -> int:
         body.append(ui.note(f"{len(subs)} subdominio(s) históricos; no todos tienen por qué seguir vivos."))
     else:
         body = [ui.Text("sin resultados en crt.sh (o sin conexión)", style=ui.GREY)]
-    ui.panel("Subdominios (crt.sh)", "subdominios en certificados públicos, sin tocar su DNS", body, border=ui.ORANGE)
+    ui.panel("Subdominios (crt.sh)", "subdominios en certificados públicos, sin tocar su DNS", body)
 
     with ui.console.status(f"[{ui.ORANGE}]resolviendo DNS[/][{ui.GREY}]… (A/NS/MX)[/]", spinner="dots"):
-        ui.panel("Registros DNS", "a dónde apunta el dominio (A/AAAA, NS, MX)", _dns_records(domain), border=ui.ORANGE)
+        ui.panel("Registros DNS", "a dónde apunta el dominio (A/AAAA, NS, MX)", _dns_records(domain))
 
     with ui.console.status(f"[{ui.ORANGE}]revisando políticas de correo[/][{ui.GREY}]… (SPF/DMARC/DKIM)[/]", spinner="dots"):
-        ui.panel("Correo (SPF/DMARC/DKIM)", "si el dominio se puede suplantar por email", _mail_policies(domain), border=ui.ORANGE)
+        correo = _mail_policies(domain)
+    ui.panel("Correo (SPF/DMARC/DKIM)", "si el dominio se puede suplantar por email", correo)
 
     with ui.console.status(f"[{ui.ORANGE}]comprobando cabeceras[/][{ui.GREY}]…[/]", spinner="dots"):
-        ui.panel("Cabeceras de seguridad", "cabeceras HTTP defensivas presentes/ausentes y CORS", _headers(domain), border=ui.ORANGE)
+        cab = _headers(domain)
+    ui.panel("Cabeceras de seguridad", "cabeceras HTTP defensivas presentes/ausentes y CORS", cab)
+
+    findings = [f"osint ({domain}): {ln}" for ln in _alert_lines(correo, cab)]
+    resumen = f"{domain}: {len(subs)} subdominio(s) en crt.sh, " + (
+        f"{len(findings)} aviso(s)" if findings else "sin avisos destacables")
+    try:
+        store.record_scan(domain, findings=findings or None, scans={"osint": {"resumen": resumen}})
+    except Exception:  # noqa: BLE001
+        pass
     return 0

@@ -57,6 +57,13 @@ class TestHashIdentify(unittest.TestCase):
     def test_django(self):
         self.assertEqual(crypto._identify_hash("pbkdf2_sha256$260000$salt$hash")[0][1], "10000")
 
+    def test_phpass_anclado(self):
+        cands = crypto._identify_hash("$P$9abcdefghijklmnopqrstuvwxyz")
+        self.assertEqual(cands[0][0], "phpass (WordPress/phpBB)")
+        # No debe coincidir si $H$ no está al principio
+        cands_no = crypto._identify_hash("algo$H$mas")
+        self.assertNotIn("phpass (WordPress/phpBB)", [c[0] for c in cands_no])
+
 
 class TestDecodeCascade(unittest.TestCase):
     def test_base64_no_encadena_rot13(self):
@@ -69,9 +76,26 @@ class TestDecodeCascade(unittest.TestCase):
         layers = crypto.decode_cascade("Uryyb jbeyq")
         self.assertEqual(layers, [("ROT13", "Hello world")])
 
+    def test_base64_con_saltos_de_linea(self):
+        # Texto multilínea en base64 no debe perderse ni pasar a ROT13
+        b64 = base64.b64encode(b"linea 1\nlinea 2\tcon tab").decode()
+        layers = crypto.decode_cascade(b64)
+        self.assertEqual(layers[-1][1], "linea 1\nlinea 2\tcon tab")
+
+    def test_base64_urlsafe_con_guiones(self):
+        b64_txt = base64.urlsafe_b64encode(b"hello??world>>").decode()
+        layers = crypto.decode_cascade(b64_txt)
+        self.assertEqual(layers[0][1], "hello??world>>")
+
     def test_hex(self):
         layers = crypto.decode_cascade("48656c6c6f")
         self.assertEqual(layers[0], ("Hex", "Hello"))
+
+    def test_hex_con_saltos_de_linea(self):
+        txt = "hello\nworld"
+        h = txt.encode().hex()
+        layers = crypto.decode_cascade(h, allow_rot13=False)
+        self.assertEqual(layers[0][1], txt)
 
     def test_binario(self):
         layers = crypto.decode_cascade("01001000 01101001")
@@ -117,6 +141,11 @@ class TestJWT(unittest.TestCase):
 
     def test_token_invalido(self):
         self.assertEqual(crypto.cmd_jwt(["no-es-jwt"]), 1)
+
+    def test_jwt_timestamp_extremo_no_rompe(self):
+        token = self._b64({"alg": "none"}) + "." + self._b64({"exp": 10**18}) + "."
+        rc = crypto.cmd_jwt([token])
+        self.assertEqual(rc, 0)
 
 
 class TestGuidedJSON(unittest.TestCase):
@@ -172,6 +201,17 @@ class TestStore(unittest.TestCase):
         from tarascan.commands import audit
         store.record_scan("10.0.0.8", ports=[{"port": "445", "service": "smb"}, {"port": "22", "service": "ssh"}])
         self.assertEqual(set(audit._services_from_cache("10.0.0.8")), {"smb", "ssh"})
+
+    def test_merge_conserva_tcp_y_udp_en_mismo_puerto(self):
+        from tarascan import store
+        store.record_scan("10.0.0.7", ports=[
+            {"port": "53", "proto": "tcp", "service": "domain"},
+            {"port": "53", "proto": "udp", "service": "domain"},
+        ])
+        data = store.load_target("10.0.0.7")
+        self.assertEqual(len(data["ports"]), 2)
+        protos = {p["proto"] for p in data["ports"]}
+        self.assertEqual(protos, {"tcp", "udp"})
 
 
 class TestWebApiDetection(unittest.TestCase):
@@ -353,6 +393,26 @@ class TestGuidedValidator(unittest.TestCase):
     def test_net_rechaza_flag_intrusiva(self):
         ips = {"10.0.0.5"}
         self.assertIsNone(self.cli._validate_guided_cmd("tarascan 10.0.0.5 --brute ssh", net_ips=ips, allow_flags=self.cli._GUIDED_NET_ALLOWED))
+
+    def test_cve_no_exige_el_target_en_los_args(self):
+        # 'cve' recibe producto+versión, no la IP: no debe descartarse por eso.
+        out = self.cli._validate_guided_cmd("tarascan cve vsftpd 2.3.4", target="1.2.3.4", allow_flags=self.ALLOW)
+        self.assertEqual(out, "tarascan cve vsftpd 2.3.4")
+
+    def test_flag_antes_del_objetivo_no_pierde_la_flag(self):
+        # Aunque la IA ponga la flag antes del objetivo, se reconstruye bien.
+        out = self.cli._validate_guided_cmd("tarascan --sqli 9.9.9.9", target="1.2.3.4", allow_flags=self.ALLOW)
+        self.assertEqual(out, "tarascan 1.2.3.4 --sqli")
+
+    def test_flag_con_valor_se_conserva(self):
+        out = self.cli._validate_guided_cmd("tarascan 9.9.9.9 --brute ssh", target="1.2.3.4", allow_flags=self.ALLOW)
+        self.assertEqual(out, "tarascan 1.2.3.4 --brute ssh")
+
+    def test_norm_cmd_colapsa_barra_final_y_mayusculas(self):
+        self.assertEqual(
+            self.cli._norm_cmd("tarascan web http://1.2.3.4/"),
+            self.cli._norm_cmd("tarascan web http://1.2.3.4"),
+        )
 
 
 if __name__ == "__main__":

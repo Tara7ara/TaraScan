@@ -40,7 +40,7 @@ def _show(name: str, entry: dict) -> None:
             body.append(ui.Text(f"  {ln}", style=style))
     if not body:
         body = [ui.Text("sin técnicas de privesc registradas para este binario", style=ui.GREY)]
-    ui.panel(f"gtfobins · {name}", "one-liners para escalar a root", body, border=ui.ORANGE)
+    ui.panel(f"gtfobins · {name}", "one-liners para escalar a root", body)
 
 
 def cmd_gtfobins(argv: list[str]) -> int:
@@ -69,7 +69,7 @@ def cmd_gtfobins(argv: list[str]) -> int:
             ui.note("uso: tarascan gtfobins find vim awk   ·   o: sudo -l | tarascan gtfobins"),
             ui.dim("busca candidatos en la víctima con: find / -perm -4000 -type f 2>/dev/null   (SUID)"),
             ui.dim("                                   getcap -r / 2>/dev/null   (capabilities)"),
-        ], border=ui.ORANGE)
+        ])
         return 0
 
     ui.rule(f"gtfobins · [{ui.PURPLE}]{ui.escape(' '.join(_binname(t) for t in dict.fromkeys(tokens)))}[/]")

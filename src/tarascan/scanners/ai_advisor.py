@@ -96,11 +96,12 @@ _SUBCOMMANDS = (
 )
 
 _SYSTEM = (
-    "Eres un pentester ofensivo ayudando en un test autorizado y en el estudio "
-    "del eJPT. Te paso el informe de recon de la herramienta tarascan sobre un "
-    "objetivo con permiso explícito. Tu objetivo es ENCONTRAR Y EXPLOTAR, no "
-    "defender: piensa como un atacante. No des consejos de mitigación, parches, "
-    "actualizaciones ni hardening; eso no interesa aquí. Responde en español, "
+    "Eres un analista de seguridad ofensiva en una prueba de penetración "
+    "autorizada y para el estudio del eJPT. Te paso el informe de recon de la "
+    "herramienta tarascan sobre un objetivo con permiso explícito del propietario. "
+    "Céntrate en la evaluación ofensiva: identifica la superficie de ataque y los "
+    "vectores de acceso priorizados a partir de los hallazgos concretos. No hace "
+    "falta que incluyas apartados de mitigación ni hardening. Responde en español, "
     "conciso y sin relleno, con estas tres secciones y en este orden:\n"
     "## Resumen\n"
     "Qué es el objetivo y qué superficie de ataque ofrece, en 3-5 frases.\n"
@@ -153,8 +154,9 @@ _SYSTEM_NET = (
     "Eres un pentester ofensivo ayudando en un test autorizado y en el estudio "
     "del eJPT. Te paso el MAPA DE RED que ha generado tarascan: una tabla de "
     "equipos vivos de una subred con su IP, hostname, SO, puertos, MAC y "
-    "fabricante. Piensa como un atacante que acaba de entrar en la red y decide "
-    "por dónde empezar. No des consejos de defensa ni hardening. Responde en "
+    "fabricante. Evalúa la red desde la perspectiva ofensiva y decide por dónde "
+    "empezar según el valor de cada equipo. No hace falta que incluyas apartados "
+    "de defensa ni hardening. Responde en "
     "español, conciso, con estas tres secciones y en este orden:\n"
     "## Resumen\n"
     "Cómo es la red en 3-5 frases: cuántos equipos, qué tipos hay (servidores, "
@@ -370,6 +372,18 @@ def analyze(report_md: str, target: str | None = None, kind: str = "target") -> 
     )
 
 
+_REFUSAL_HINTS = (
+    "i cannot", "i can't", "i'm sorry", "no puedo ayudar", "no puedo asistir",
+    "cannot assist", "i am not able", "va en contra", "unethical", "i won't",
+)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    """Heurística: el modelo soltó un rechazo ético en vez de la respuesta pedida."""
+    low = text.lower()
+    return any(h in low for h in _REFUSAL_HINTS)
+
+
 def _extract_json(text: str) -> dict:
     """Saca el objeto JSON de la respuesta, tolerando ```json ...``` o texto alrededor."""
     text = text.strip()
@@ -383,9 +397,11 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
-def suggest_actions(report_md: str, target: str, kind: str = "target") -> tuple[str, list[dict], str]:
+def suggest_actions(report_md: str, target: str, kind: str = "target",
+                    already_run: list[str] | None = None) -> tuple[str, list[dict], str]:
     """Modo guiado: devuelve (resumen, acciones, modelo); cada acción es {comando, motivo}.
-    kind target|net. La validación la hace cli."""
+    kind target|net. already_run son comandos ya lanzados, para no reproponerlos.
+    La validación la hace cli."""
     key = get_key()
     if not key:
         raise AIError(
@@ -406,13 +422,19 @@ def suggest_actions(report_md: str, target: str, kind: str = "target") -> tuple[
     report = report_md.strip()
     if len(report) > _MAX_CHARS:
         report = report[:_MAX_CHARS] + "\n\n[informe recortado por longitud]"
+    hechos = ""
+    if already_run:
+        lista = "\n".join(f"- {c}" for c in already_run)
+        hechos = ("\nYA EJECUTADO en esta sesión (NO lo vuelvas a proponer, ni una "
+                  "variante trivial como cambiar http/https o la barra final):\n"
+                  f"{lista}\n")
     if kind == "net":
         system = _SYSTEM_GUIDED_NET
-        user_msg = f"Subred escaneada: {target}\n\nMapa de red de tarascan:\n\n" + report
+        user_msg = f"Subred escaneada: {target}\n{hechos}\nMapa de red de tarascan:\n\n" + report
     else:
         system = _SYSTEM_GUIDED
         user_msg = (
-            f"Objetivo exacto (úsalo literal en cada comando): {target}\n\n"
+            f"Objetivo exacto (úsalo literal en cada comando): {target}\n{hechos}\n"
             "Informe de tarascan:\n\n" + report
         )
 
@@ -428,7 +450,11 @@ def suggest_actions(report_md: str, target: str, kind: str = "target") -> tuple[
         try:
             data = _extract_json(raw)
         except ValueError:
-            errores.append(f"'{model}' no devolvió JSON válido")
+            if _looks_like_refusal(raw):
+                errores.append(f"'{model}' respondió con un rechazo de seguridad en vez de JSON "
+                               "(prueba otro modelo con TARASCAN_AI_MODEL)")
+            else:
+                errores.append(f"'{model}' no devolvió JSON válido")
             continue
         acciones = data.get("acciones") or []
         if not isinstance(acciones, list):

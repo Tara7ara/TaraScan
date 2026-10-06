@@ -10,8 +10,15 @@ def scan(target: str) -> list[dict]:
         ["smbclient", "-L", f"//{target}", "-N", "-g"],
         capture_output=True,
         text=True,
-        check=True,
+        timeout=30,
     )
+
+    if result.returncode != 0:
+        err = (result.stderr or "").lower()
+        if any(h in err for h in ("access_denied", "logon_failure", "not_supported", "bad_network_name", "connection refused")):
+            return []
+        if not result.stdout.strip():
+            result.check_returncode()
 
     shares = []
     for line in result.stdout.splitlines():

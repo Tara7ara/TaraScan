@@ -55,5 +55,5 @@ def cmd_diff(argv: list[str]) -> int:
 
     if not body:
         body = [ui.Text("sin cambios entre los dos últimos escaneos", style=ui.GREY)]
-    ui.panel("Cambios", "puertos, versiones y tecnologías que han cambiado", body, border=ui.ORANGE)
+    ui.panel("Cambios", "puertos, versiones y tecnologías que han cambiado", body)
     return 0

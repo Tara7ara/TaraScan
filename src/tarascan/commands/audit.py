@@ -48,7 +48,7 @@ def _audit_ssh(target: str, port: str) -> None:
         hits.append(ui.dim(f"versión detectada: OpenSSH {ver.group(1)} (comprueba CVE con: searchsploit openssh {ver.group(1)})"))
     if not hits:
         hits = [ui.dim("no se detectaron algoritmos débiles habituales (o el script no devolvió datos).")]
-    ui.panel(f"audit ssh · {target}:{port}", "algoritmos débiles y métodos de login de SSH", hits, border=ui.ORANGE)
+    ui.panel(f"audit ssh · {target}:{port}", "algoritmos débiles y métodos de login de SSH", hits)
 
 
 def _audit_tls(target: str, port: str) -> None:
@@ -75,12 +75,12 @@ def _audit_tls(target: str, port: str) -> None:
         body.append(ui.warn(f"certificado firmado con {cert['firma']} (SHA1)."))
     if not any(isinstance(x, ui.Text) and x.style and "red" in str(x.style) for x in body):
         body.append(ui.dim("sin protocolos/cifrados obsoletos destacables."))
-    ui.panel(f"audit tls · {target}:{port}", "protocolos y cifrados TLS deprecados", body, border=ui.ORANGE)
+    ui.panel(f"audit tls · {target}:{port}", "protocolos y cifrados TLS deprecados", body)
 
 
 def _audit_smb(target: str, port: str) -> None:
     try:
-        res = netexec.scan(target)
+        res = netexec.scan(target, port=port)
     except FileNotFoundError:
         ui.error("netexec (nxc) no está instalado")
         return
@@ -104,10 +104,11 @@ def _audit_smb(target: str, port: str) -> None:
         body.extend(ui.Text(f"  {s}") for s in shares)
     if not body:
         body = [ui.dim("sin datos por sesión nula (SMB puede estar bien configurado).")]
-    ui.panel(f"audit smb · {target}", "null sessions, SMB signing y recursos anónimos", body, border=ui.ORANGE)
+    ui.panel(f"audit smb · {target}", "null sessions, SMB signing y recursos anónimos", body)
 
 
 _AUDITORS = {"ssh": _audit_ssh, "tls": _audit_tls, "smb": _audit_smb}
+_ALIASES = {"ssl": "tls"}
 _DEFAULT_PORT = {"ssh": "22", "tls": "443", "smb": "445"}
 # Puertos que, si están abiertos, delatan cada servicio (para el modo automático).
 _SERVICE_PORTS = {"ssh": {"22"}, "tls": {"443", "8443"}, "smb": {"139", "445"}}
@@ -134,13 +135,18 @@ def cmd_audit(argv: list[str]) -> int:
     p.add_argument("-p", "--port", help="puerto (por defecto el estándar del servicio)")
     args = p.parse_args(argv)
 
-    # El primer positional es el servicio solo si es uno conocido; si no, objetivo.
-    manual = args.items[0] in _AUDITORS
+    first = args.items[0].lower()
+    first_resolved = _ALIASES.get(first, first)
+    manual = first_resolved in _AUDITORS
     if manual:
         if len(args.items) < 2:
-            ui.error("falta el objetivo: tarascan audit ssh <IP>")
+            ui.error(f"falta el objetivo: tarascan audit {first_resolved} <IP>")
             return 1
-        servicios, target = [args.items[0]], args.items[1]
+        servicios, target = [first_resolved], args.items[1]
+    elif len(args.items) >= 2:
+        ui.error(f"servicio desconocido '{args.items[0]}' (servicios válidos: {', '.join(_AUDITORS)}). "
+                 f"Uso: tarascan audit <servicio> <IP>")
+        return 1
     else:
         target = args.items[0]
         servicios = _services_from_cache(target)
@@ -164,4 +170,9 @@ def cmd_audit(argv: list[str]) -> int:
                 pass
         with ui.console.status(f"[{ui.ORANGE}]auditando {svc}[/][{ui.GREY}]…[/]", spinner="dots"):
             _AUDITORS[svc](target, port)
+        try:
+            from tarascan import store
+            store.record_scan(target, scans={f"audit {svc}": {"resumen": f"auditado {svc} en {target}:{port}"}})
+        except Exception:  # noqa: BLE001
+            pass
     return 0

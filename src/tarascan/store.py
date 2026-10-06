@@ -74,8 +74,9 @@ def add_snapshot(target: str, ports: list[dict], tech: list[str] | None = None) 
     data = load_target(target)
     snap = {
         "ts": datetime.datetime.now().isoformat(timespec="seconds"),
-        "ports": [{"port": p.get("port"), "service": p.get("service", ""),
-                   "version": p.get("version", "")} for p in ports if p.get("port")],
+        "ports": [{"port": p.get("port"), "proto": p.get("proto", "tcp"),
+                   "service": p.get("service", ""), "version": p.get("version", "")}
+                  for p in ports if p.get("port")],
         "tech": list(tech or []),
     }
     data["history"].append(snap)
@@ -89,12 +90,13 @@ def record_scan(target: str, ports: list[dict] | None = None,
     """Funde lo nuevo con lo que ya hubiera del objetivo (no pisa a ciegas)."""
     data = load_target(target)
     if ports:
-        by_port = {x.get("port"): x for x in data["ports"]}
+        by_key = {(str(x.get("port")), x.get("proto", "tcp")): x for x in data["ports"] if x.get("port")}
         for p in ports:
-            existing = by_port.get(p.get("port"))
+            key = (str(p.get("port")), p.get("proto", "tcp"))
+            existing = by_key.get(key)
             if existing is None:
                 data["ports"].append(p)
-                by_port[p.get("port")] = p
+                by_key[key] = p
             else:
                 # Merge campo a campo: valor nuevo no vacío gana, si no conserva el viejo.
                 for k, v in p.items():
@@ -135,7 +137,23 @@ def set_active_target(target: str) -> bool:
 
 
 def get_active_target() -> str | None:
-    return get_state().get("active_target") or None
+    t = get_state().get("active_target")
+    if t:
+        return t
+    # Respaldo: el objetivo fijado con set-target / $T (lo usa el recon base). Así
+    # report/diff/cve no apuntan a otro sitio si aún no se ha escaneado el objetivo.
+    env_t = os.environ.get("T", "").strip()
+    if env_t:
+        return env_t
+    state_file = Path.home() / ".local" / "state" / "target"
+    try:
+        if state_file.is_file():
+            val = state_file.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+    except OSError:
+        pass
+    return None
 
 
 def set_active_workspace(path: str) -> bool:

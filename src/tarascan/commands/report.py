@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import html as _html
+import re
 from pathlib import Path
 
 from tarascan import store, ui
@@ -29,8 +30,14 @@ def _build_markdown(data: dict) -> str:
         "## Resumen ejecutivo",
         "",
     ]
+    def _port_num(p: dict) -> int:
+        try:
+            return int(p.get("port", 0))
+        except (ValueError, TypeError):
+            return 0
+
     ports = data.get("ports", [])
-    open_ports = ", ".join(sorted({str(p.get("port")) for p in ports})) or "ninguno registrado"
+    open_ports = ", ".join(str(p.get("port")) for p in sorted(ports, key=_port_num) if p.get("port")) or "ninguno registrado"
     # Separa lo crítico (marcado con [!] en el recon) del resto.
     all_findings = data.get("findings", [])
     criticos = [f[3:].strip() for f in all_findings if f.startswith("[!]")]
@@ -46,7 +53,7 @@ def _build_markdown(data: dict) -> str:
     ]
     if ports:
         lines += ["### Servicios", "", "| Puerto | Servicio | Versión |", "| --- | --- | --- |"]
-        for p in sorted(ports, key=lambda x: str(x.get("port"))):
+        for p in sorted(ports, key=_port_num):
             lines.append(f"| {p.get('port', '-')} | {p.get('service', '-')} | {p.get('version') or '-'} |")
         lines.append("")
     if data.get("tech"):
@@ -87,6 +94,12 @@ def _build_markdown(data: dict) -> str:
 
 def _to_html(md: str, target: str) -> str:
     """Render mínimo de Markdown a HTML (sin dependencias), con la paleta de tarascan."""
+    def _inline(text: str) -> str:
+        s = _html.escape(text)
+        s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+        s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
+        return s
+
     body = []
     in_table = False
     in_list = False
@@ -100,7 +113,7 @@ def _to_html(md: str, target: str) -> str:
                 body.append("<table>")
                 in_table = True
             tag = "td"
-            body.append("<tr>" + "".join(f"<{tag}>{_html.escape(c)}</{tag}>" for c in cells) + "</tr>")
+            body.append("<tr>" + "".join(f"<{tag}>{_inline(c)}</{tag}>" for c in cells) + "</tr>")
             continue
         if in_table:
             body.append("</table>")
@@ -116,12 +129,12 @@ def _to_html(md: str, target: str) -> str:
                 body.append("<ul>")
                 in_list = True
             mark = "☑" if line[3] == "x" else "☐"
-            body.append(f"<li>{mark} {_html.escape(line[6:])}</li>")
+            body.append(f"<li>{mark} {_inline(line[6:])}</li>")
         elif line.startswith("- "):
             if not in_list:
                 body.append("<ul>")
                 in_list = True
-            body.append(f"<li>{_html.escape(line[2:])}</li>")
+            body.append(f"<li>{_inline(line[2:])}</li>")
         else:
             if in_list:
                 body.append("</ul>")
@@ -129,7 +142,7 @@ def _to_html(md: str, target: str) -> str:
             if line.startswith("_") and line.endswith("_"):
                 body.append(f"<p class='meta'>{_html.escape(line.strip('_'))}</p>")
             elif line:
-                body.append(f"<p>{_html.escape(line)}</p>")
+                body.append(f"<p>{_inline(line)}</p>")
     if in_table:
         body.append("</table>")
     if in_list:
@@ -140,7 +153,8 @@ def _to_html(md: str, target: str) -> str:
         "h1,h2,h3{color:#ff9e64}h2{border-bottom:1px solid #787c99;padding-bottom:.2rem}"
         ".meta{color:#787c99}table{border-collapse:collapse;width:100%;margin:1rem 0}"
         "td{border:1px solid #787c99;padding:.3rem .6rem}tr:first-child td{color:#9d7cd8;font-weight:bold}"
-        "li{margin:.2rem 0}"
+        "li{margin:.2rem 0}code{background:#24283b;padding:.1rem .3rem;border-radius:3px;color:#ff9e64}"
+        "strong{color:#ff9e64}"
     )
     return (
         f"<!doctype html><html lang='es'><head><meta charset='utf-8'>"
@@ -189,5 +203,5 @@ def cmd_report(argv: list[str]) -> int:
     ui.rule(f"informe · [{ui.PURPLE}]{ui.escape(target)}[/]")
     ui.panel("Informe generado", f"consolidado de {len(data.get('ports', []))} servicio(s) y {len(data.get('findings', []))} hallazgo(s)", [
         ui.Text(str(out), style=ui.ORANGE),
-    ], border=ui.ORANGE)
+    ])
     return 0

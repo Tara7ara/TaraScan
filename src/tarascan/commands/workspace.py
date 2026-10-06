@@ -36,7 +36,7 @@ def _init(name: str) -> int:
         ui.Text("├── notes.md    cuaderno de bitácora", style=ui.GREY),
         ui.Text("└── report/     informe final", style=ui.GREY),
         ui.note("apunta cosas con: tarascan note \"lo que sea\""),
-    ], border=ui.ORANGE)
+    ])
     return 0
 
 
@@ -52,7 +52,7 @@ def _list() -> int:
         mark = " (activo)" if active and Path(active) == d else ""
         style = ui.ORANGE if mark else None
         body.append(ui.Text(f"{d.name}{mark}", style=style) if style else ui.Text(f"{d.name}{mark}"))
-    ui.panel("Workspaces", "en ~/audit/", body, border=ui.ORANGE)
+    ui.panel("Workspaces", "en ~/audit/", body)
     return 0
 
 

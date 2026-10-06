@@ -10,6 +10,7 @@ def scan(url: str) -> dict:
         capture_output=True,
         text=True,
         check=True,
+        timeout=60,
     )
 
     entries = json.loads(result.stdout) if result.stdout.strip() else []
@@ -18,6 +19,13 @@ def scan(url: str) -> dict:
     findings = {}
     for name, info in entry.get("plugins", {}).items():
         values = info.get("string") or info.get("version") or info.get("module")
-        findings[name] = ", ".join(values) if values else "detectado"
+        if isinstance(values, str):
+            findings[name] = values
+        elif isinstance(values, (list, tuple)):
+            findings[name] = ", ".join(str(v) for v in values)
+        elif values:
+            findings[name] = str(values)
+        else:
+            findings[name] = "detectado"
 
     return {"status": entry.get("http_status"), "plugins": findings}
